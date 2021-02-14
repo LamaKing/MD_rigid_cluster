@@ -88,7 +88,7 @@ def remapping(X,Y,u,u_inv):
 # create clusters taking as input the two primitive vectors a1 and a2
 # and the integer couples describing their positions.
 # center of mass in zero.
-def create_cluster(input_cluster, angle):
+def create_cluster_hex(input_cluster, angle):
  file = open(input_cluster, 'r')
  N = int(file.readline())
  a1 = [float(x) for x in file.readline().split()]
@@ -111,12 +111,12 @@ def rotate(pos, angle):
   pos[i,1] = newy
  return pos
 
-if __name__ == "__main__":
+ def MD_rigid_rototrasl(argv):
     #------------------------------------------
     # INPUTS
     #------------------------------------------
     # AS: Reads inputs from json file, easier for simul driver in python
-    with open(sys.argv[1]) as inj:
+    with open(argv[0]) as inj:
        inputs = json.load(inj)
 
     print(inputs, file=sys.stderr)
@@ -148,7 +148,7 @@ if __name__ == "__main__":
     # SETUP SYSTEM
     #------------------------------------------
     # create cluster
-    pos = create_cluster(input_cluster, angle)[:,:2]
+    pos = create_cluster_hex(input_cluster, angle)[:,:2]
     np.savetxt('pos_rotate.dat', pos)
     N = pos.shape[0]
 
@@ -172,19 +172,23 @@ if __name__ == "__main__":
     # At T=0 this just scales the time, energy barriers are untouched.
     # Dissipation quantities. Assumes rotation and translation indipendent.
     # Translational damping of sigle colloid. Mass = 1 fKg
-    etat = 1 # [fKg/ms]
+    eta = 1 # [fKg/ms]
     #!! CM translational viscosity
-    etat_eff = etat*N
+    etat_eff = eta*N
     # CM rotational viscosity.
     # Prop to N^(3/2)
     #!! AS: Not sure it makes much sense, but needed to match units: viscous FORCE applied somewhere to get a torque
-    fulcrum = 1 # [micron]
-    etar_eff = fulcrum*etat*np.sum(np.linalg.norm(pos, axis=1)) # [fKg*micron^2/ms]
+    #fulcrum = 1 # [micron]
+    #etar_eff = fulcrum*eta*np.sum(np.linalg.norm(pos, axis=1)) # [fKg*micron^2/ms]
     # Prop to N+N^2
-    #!! Xin derivation. Let's take etar/etat=1, we care only of scaling with N
-    #etar_eff = etat*(N+*np.sum(np.linalg.norm(pos, axis=1)**2)) [fKg*micron^2/ms]
+    #!! AS: Xin derivation. Assume etar/eta=1. Include Stokes derivation
+    #etar_eff = eta*(N+*np.sum(np.linalg.norm(pos, axis=1)**2)) [fKg*micron^2/ms]
+    #!! AS: I think we could skip the Stokes treatment, no?
+    sigma = 4.45 # micron. Colloid radius.
+    Ic = 3/N/sigma**2*np.sum(pos**2) # Shape factor prop to N
+    etar_eff = N*np.pi*eta*sigma**3(1+Ic) # Prot to N^2
 
-    print("Number of particles %i Eta trasl %.5g" % (N, etat), file=sys.stderr)
+    print("Number of particles %i Eta trasl %.5g" % (N, eta), file=sys.stderr)
     print("Eta tras eff %.5g Eta roto eff %.5g" % (etat_eff, etar_eff), file=sys.stderr)
     print("Ratio roto/tras %.5g" % (etar_eff/etat_eff), file=sys.stderr)
 
@@ -193,10 +197,10 @@ if __name__ == "__main__":
 
     # Print system info, for debug and analysis
     with open('info.txt', 'w') as info:
-     for k,v in zip(['etat', 'etar', 'N'], [etat_eff, etar_eff, N]):
+     for k,v in zip(['eta', 'etat', 'etar', 'N'], [eta, etat_eff, etar_eff, N]):
       print("%20s %25.10g" % (k,v), file=info)
      for k,v in inputs.items():
-      print("%20s %25.10g" % (k,v), file=info)
+      print(k,v, file=info)
 
     #------------------------------------------
     # OUTPUT HEADER
@@ -261,3 +265,6 @@ if __name__ == "__main__":
     t_exec = t1-t0
     print("Done in %is (%.2fmin or %.2fh)" % (t_exec, t_exec/60, t_exec/3600), file=sys.stderr)
     print("Speed %5.3f s/step" % (t_exec/Nsteps), file=sys.stderr)
+
+ if __name__ == "__main__":
+   MD_rigid_roto_map(sys.argv[1:])
