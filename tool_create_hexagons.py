@@ -7,9 +7,9 @@ import os.path
 import math
 import numpy as np
 
-def create_cluster(input_cluster, X0, Y0):
+def create_cluster_hex(input_cluster, X0, Y0):
  file = open(input_cluster, 'r')
- N1, N2 = [int(x) for x in file.readline().split()]  
+ N1, N2 = [int(x) for x in file.readline().split()]
  a1 = [float(x) for x in file.readline().split()]
  a2 = [float(x) for x in file.readline().split()]
  N = int(N1*N2+((N2-1)*N2)/2+N2*(N1-1)+((N1-2)*(N1-1))/2)
@@ -33,15 +33,17 @@ def create_cluster(input_cluster, X0, Y0):
  pos = pos - np.mean(pos,axis=0) + np.array([X0, Y0, 0.0, 0.0, 0.0, 0.0], dtype=float)
  print_xyz(pos)
  print_dat(pos)
+ return pos
 
 def print_xyz(pos):
  N = pos.shape[0]
  xyz_out = open('cluster.xyz', 'w')
  xyz_out.write(str(N) + '\n#Cluster\n')
  for i in range(N):
-  for j in range(3):
-   xyz_out.write(str(pos[i,j])+' ')
-  xyz_out.write('\n')
+#  for j in range(3):
+   #print("xyz", pos[i])
+   print("C %20.15f %20.15f %20.15f" % tuple(pos[i,:3]), file=xyz_out)
+   #xyz_out.write('\n')
 
 def print_dat(pos):
  N = pos.shape[0]
