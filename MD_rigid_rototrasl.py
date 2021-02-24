@@ -123,10 +123,10 @@ def rotate(pos, angle):
 
     # Cluster
     input_cluster = inputs['cluster_hex']
-    angle = inputs['angle'] # [deg]
+    angle = inputs['angle'] # Starting angle [deg]
 
     # Substrate
-    symmetry = inputs['sub_symm']
+    symmetry = inputs['sub_symm'] # Substrate symmetry (hex or square)
     a = inputs['a'] # Well end radius [micron]
     b = inputs['b'] # Well slope radius [micron]
     R = inputs['R'] # Well lattice spacing [micron]
@@ -166,14 +166,13 @@ def rotate(pos, angle):
     torque = 0.
     pos_cm = np.zeros(2)
 
-    #Ic = np.sum(pos**2)/N # Moment of inertia, w/out mass!
 
     # -------LANGEVIN----------
     # At T=0 this just scales the time, energy barriers are untouched.
     # Dissipation quantities. Assumes rotation and translation indipendent.
     # Translational damping of sigle colloid. Mass = 1 fKg
     eta = 1 # [fKg/ms]
-    #!! CM translational viscosity
+    # CM translational viscosity
     etat_eff = eta*N
     # CM rotational viscosity.
     # Prop to N^(3/2)
@@ -193,14 +192,15 @@ def rotate(pos, angle):
     print("Ratio roto/tras %.5g" % (etar_eff/etat_eff), file=sys.stderr)
 
     # TODO: random forces at finite temperature
-    #!! AS: How do they scale with number of particles?
+    #!! AS: How do they scale with number of particles? With sqrt(N), see notes with CentraLimTheo
+    #!! AS: Do I need a "rotational noise" as well?
 
     # Print system info, for debug and analysis
     with open('info.txt', 'w') as info:
-     for k,v in zip(['eta', 'etat', 'etar', 'N'], [eta, etat_eff, etar_eff, N]):
+     for k, v in zip(['eta', 'etat', 'etar', 'N'], [eta, etat_eff, etar_eff, N]):
       print("%20s %25.10g" % (k,v), file=info)
-     for k,v in inputs.items():
-      print(k,v, file=info)
+     for k, v in inputs.items():
+      print(k, v, file=info)
 
     #------------------------------------------
     # OUTPUT HEADER
@@ -229,7 +229,6 @@ def rotate(pos, angle):
         # torque is T = - dE / dTheta = - (E(theta+) - E(theta-)) / 2dTheta
         en_plus, _ = calc_en_tan(rotate(pos, dtheta) + pos_cm, a, b, wd, epsilon, u, u_inv)
         en_minus, _ = calc_en_tan(rotate(pos, -dtheta) + pos_cm, a, b, wd, epsilon, u, u_inv)
-        # add external torque
         torque = -(en_plus - en_minus)/dtheta/2
 
         # center of mass follows local forces.
