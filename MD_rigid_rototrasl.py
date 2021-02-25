@@ -114,6 +114,15 @@ def rotate(pos, angle):
  return pos
 
 def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
+    """Add description"""
+
+    # TODO:
+    # - add logger instead of print on stderr.
+    # - clean weird printing and stuff
+    # - clean code a bit
+    # - correct indentation: it's 4 spaces according to PEP8!
+    # - IMPLEMENTE OMEGA_STOP: omega < tol interrupt
+
     #------------------------------------------
     # INPUTS
     #------------------------------------------
@@ -121,10 +130,17 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     with open(argv[0]) as inj:
        inputs = json.load(inj)
 
-    print(inputs, file=sys.stderr)
+    #print(inputs, file=sys.stderr)
+    omega_tol, minNsteps = 1e30, 1e30
+    try:
+     omega_tol = inputs['omega_tol']
+     minNsteps = inputs['minNsteps']
+     print("omega tol", omega_tol, "min N", minNsteps)
+    except KeyError:
+     print("No omega-stop and min N steps given, do full run")
 
     # Cluster
-    input_cluster = inputs['cluster_hex']
+    input_cluster = inputs['cluster_hex'] # Geom as lattice and Bravais points
     angle = inputs['angle']*np.pi/180 # Starting angle [deg] -> [rad]
 
     # Substrate
@@ -184,19 +200,20 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     #!! AS: Xin derivation. Assume etar/eta=1. Include Stokes derivation
     #etar_eff = eta*(N+*np.sum(np.linalg.norm(pos, axis=1)**2)) [fKg*micron^2/ms]
     #!! AS: I think we could skip the Stokes treatment, no?
-    sigma = 4.45 # micron. Colloid radius.
+    # sigma = 4.45 # micron. Colloid radius.
+    sigma = 1 # fake-micron. Ignore colloid radius
     Ic = 3/N/sigma**2*np.sum(pos**2) # Shape factor prop to N
     etar_eff = N*np.pi*eta*sigma**3*(1+Ic) # Prot to N^2
 
     print("Number of particles %i Eta trasl %.5g" % (N, eta), file=sys.stderr)
-    print("Eta tras eff %.5g Eta roto eff %.5g" % (etat_eff, etar_eff), file=sys.stderr)
-    print("Ratio roto/tras %.5g" % (etar_eff/etat_eff), file=sys.stderr)
+    print("Eta trasl eff %.5g Eta roto eff %.5g" % (etat_eff, etar_eff),
+          "Ratio roto/tras %.5g" % (etar_eff/etat_eff), file=sys.stderr)
 
     # TODO: random forces at finite temperature
     #!! AS: How do they scale with number of particles? With sqrt(N), see notes with CentraLimTheo
     #!! AS: Do I need a "rotational noise" as well?
 
-    # Print system info, for debug and analysis
+    # Print system info, for debug, analysis and reproducibility
     with open(info_fname, 'w') as infof:
       infod = {'eta': eta, 'etat_eff': etat_eff, 'etar_eff': etar_eff, 'N': N}
       infod.update(inputs)
@@ -222,7 +239,12 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     # STARTS MD
     #------------------------------------------
     printerr_skip = int(Nsteps/25)
-    print_skip = 10
+    print_skip = 50
+    omega_runavg = np.zeros(printerr_skip)
+    stop_count = 0
+    stop_count_lim = 5
+    omega_doubleavg = 0
+
     t0 = time() # Start clock
     for it in range(Nsteps):
 
@@ -243,13 +265,16 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
         angle += dangle
         # positions are further rotated
         pos = rotate(pos,dangle)
+        omega_runavg[int(it%print_skip)] = omega
 
         # Print progress
         if it % printerr_skip == 0:
          print("t=%10.4g of %.4g " % (it*dt, Nsteps*dt),
                  "(%2i%%)" % (100.*it/Nsteps),
-                 "x=%10.6f y=%10.6f" % (pos_cm[0], pos_cm[1]),
-                 "theta=%10.6f" % (angle*180/np.pi),
+                 "x=%10.3g y=%10.3g" % (pos_cm[0], pos_cm[1]),
+                 "theta=%8.2f" % (angle*180/np.pi),
+                 "omega=%8.2g" % omega,
+                 "|Vcm|=%8.2g" % (np.sqrt(Vcm[0]**2+Vcm[1]**2)),
                  file=sys.stderr)
 
         # Print step results
@@ -262,10 +287,29 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
                         for val in data]),
                file=outstream
          )
+         omega_avg = np.abs(np.average(omega_runavg))
+         if omega_avg < omega_tol and it > minNsteps:
+          print("Omega stuck strike", stop_count)
+          omega_doubleavg += omega_avg
+          stop_count += 1
+         else:
+          stop_count = 0
+          omega_doubleavg = 0
+         if stop_count >= stop_count_lim:
+          print("System stuck for %i times in a row (omega=%.2g) at step %i. Exit." % (stop_count_lim,
+                                                                                       omega_doubleavg/stop_count_lim,
+                                                                                       it), file=sys.stderr)
+          break
+         omega_runavg = np.zeros(printerr_skip)
 
+    # Always print the last point
+    data = [dt*it, e_pot, pos_cm[0], pos_cm[1], Vcm[0], Vcm[1],
+            angle*180/np.pi, ((angle*180/np.pi)%360), omega,
+            forces[0], forces[1], torque]
+    print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space) for val in data]), file=outstream)
     t1 = time() # Stop clock
     t_exec = t1-t0
-    print("Done in %is (%.2fmin or %.2fh)" % (t_exec, t_exec/60, t_exec/3600), file=sys.stderr)
+    print("Done in %is or %.2fmin or %.2fh" % (t_exec, t_exec/60, t_exec/3600), file=sys.stderr)
     print("Speed %5.3f s/step" % (t_exec/Nsteps), file=sys.stderr)
 
 if __name__ == "__main__":
