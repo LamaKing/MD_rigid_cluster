@@ -102,16 +102,18 @@ def create_cluster_hex(input_cluster, angle):
  pos = rotate(pos, angle)
  return pos
 
-# rotates pos vector (the first two rows are X,Y) by an angle in degrees
+# rotates pos vector (the first two rows are X,Y) by an angle in rad
 def rotate(pos, angle):
  for i in range(pos.shape[0]):
-  newx = pos[i,0] * np.cos(angle/180*np.pi) - pos[i,1] * np.sin(angle/180*np.pi)
-  newy = pos[i,0] * np.sin(angle/180*np.pi) + pos[i,1] * np.cos(angle/180*np.pi)
+  #newx = pos[i,0] * np.cos(angle/180*np.pi) - pos[i,1] * np.sin(angle/180*np.pi)
+  #newy = pos[i,0] * np.sin(angle/180*np.pi) + pos[i,1] * np.cos(angle/180*np.pi)
+  newx = pos[i,0] * np.cos(angle) - pos[i,1] * np.sin(angle)
+  newy = pos[i,0] * np.sin(angle) + pos[i,1] * np.cos(angle)
   pos[i,0] = newx
   pos[i,1] = newy
  return pos
 
- def MD_rigid_rototrasl(argv):
+def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     #------------------------------------------
     # INPUTS
     #------------------------------------------
@@ -123,7 +125,7 @@ def rotate(pos, angle):
 
     # Cluster
     input_cluster = inputs['cluster_hex']
-    angle = inputs['angle'] # Starting angle [deg]
+    angle = inputs['angle']*np.pi/180 # Starting angle [deg] -> [rad]
 
     # Substrate
     symmetry = inputs['sub_symm'] # Substrate symmetry (hex or square)
@@ -142,7 +144,7 @@ def rotate(pos, angle):
     # MD params
     Nsteps = inputs['Nsteps']
     dt = inputs['dt'] # [ms]
-    dtheta = inputs['dtheta'] #deg
+    dtheta = inputs['dtheta']*np.pi/180 # [deg] -> [rad]
 
     #------------------------------------------
     # SETUP SYSTEM
@@ -166,7 +168,6 @@ def rotate(pos, angle):
     torque = 0.
     pos_cm = np.zeros(2)
 
-
     # -------LANGEVIN----------
     # At T=0 this just scales the time, energy barriers are untouched.
     # Dissipation quantities. Assumes rotation and translation indipendent.
@@ -185,7 +186,7 @@ def rotate(pos, angle):
     #!! AS: I think we could skip the Stokes treatment, no?
     sigma = 4.45 # micron. Colloid radius.
     Ic = 3/N/sigma**2*np.sum(pos**2) # Shape factor prop to N
-    etar_eff = N*np.pi*eta*sigma**3(1+Ic) # Prot to N^2
+    etar_eff = N*np.pi*eta*sigma**3*(1+Ic) # Prot to N^2
 
     print("Number of particles %i Eta trasl %.5g" % (N, eta), file=sys.stderr)
     print("Eta tras eff %.5g Eta roto eff %.5g" % (etat_eff, etar_eff), file=sys.stderr)
@@ -196,11 +197,10 @@ def rotate(pos, angle):
     #!! AS: Do I need a "rotational noise" as well?
 
     # Print system info, for debug and analysis
-    with open('info.txt', 'w') as info:
-     for k, v in zip(['eta', 'etat', 'etar', 'N'], [eta, etat_eff, etar_eff, N]):
-      print("%20s %25.10g" % (k,v), file=info)
-     for k, v in inputs.items():
-      print(k, v, file=info)
+    with open(info_fname, 'w') as infof:
+      infod = {'eta': eta, 'etat_eff': etat_eff, 'etar_eff': etar_eff, 'N': N}
+      infod.update(inputs)
+      json.dump(infod, infof, indent=True)
 
     #------------------------------------------
     # OUTPUT HEADER
@@ -214,7 +214,9 @@ def rotate(pos, angle):
                      'forces[0]', 'forces[1]', 'torque-T']
     print('#'+"".join(['{i:0{ni}d}){s: <{n}}'.format(i=il, s=lab, ni=indlab_space, n=lab_space,c=' ')
                        for il, lab in zip(range(len(header_labels)), header_labels)]
-                     ))
+                     ),
+          file=outstream
+    )
 
     #------------------------------------------
     # STARTS MD
@@ -244,20 +246,21 @@ def rotate(pos, angle):
 
         # Print progress
         if it % printerr_skip == 0:
-           print("t=%10.4g of %.4g " % (it*dt, Nsteps*dt),
+         print("t=%10.4g of %.4g " % (it*dt, Nsteps*dt),
                  "(%2i%%)" % (100.*it/Nsteps),
                  "x=%10.6f y=%10.6f" % (pos_cm[0], pos_cm[1]),
-                 "theta=%10.6f" % angle,
+                 "theta=%10.6f" % (angle*180/np.pi),
                  file=sys.stderr)
 
         # Print step results
         if it % print_skip == 0:
          data = [dt*it, e_pot,
                  pos_cm[0], pos_cm[1], Vcm[0], Vcm[1],
-                 angle, angle%360, omega,
+                 angle*180/np.pi, ((angle*180/np.pi)%360), omega,
                  forces[0], forces[1], torque]
          print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
-                       for val in data])
+                        for val in data]),
+               file=outstream
          )
 
     t1 = time() # Stop clock
@@ -265,5 +268,5 @@ def rotate(pos, angle):
     print("Done in %is (%.2fmin or %.2fh)" % (t_exec, t_exec/60, t_exec/3600), file=sys.stderr)
     print("Speed %5.3f s/step" % (t_exec/Nsteps), file=sys.stderr)
 
- if __name__ == "__main__":
-   MD_rigid_roto_map(sys.argv[1:])
+if __name__ == "__main__":
+   MD_rigid_rototrasl(sys.argv[1:])
