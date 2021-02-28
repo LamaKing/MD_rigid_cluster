@@ -7,7 +7,7 @@ import os.path
 import math
 import numpy as np
 
-def create_cluster_hex(input_cluster, X0, Y0):
+def create_cluster_hex(input_cluster, outstream=sys.stdout, X0=0, Y0=0):
  file = open(input_cluster, 'r')
  N1, N2 = [int(x) for x in file.readline().split()]
  a1 = [float(x) for x in file.readline().split()]
@@ -15,20 +15,20 @@ def create_cluster_hex(input_cluster, X0, Y0):
  N = int(N1*N2+((N2-1)*N2)/2+N2*(N1-1)+((N1-2)*(N1-1))/2)
  pos = np.zeros((N,6))
  iN = 0
- print('{}'.format(N))
- print('{} {}'.format(a1[0], a1[1]))
- print('{} {}'.format(a2[0], a2[1]))
+ print('{}'.format(N), file=outstream)
+ print('{} {}'.format(a1[0], a1[1]), file=outstream)
+ print('{} {}'.format(a2[0], a2[1]), file=outstream)
  for i in range(N2):
   for j in range(N1+i):
    pos[iN,0] = j*a1[0]+i*a2[0]
    pos[iN,1] = j*a1[1]+i*a2[1]
-   print('{} {}'.format(i, j))
+   print('{} {}'.format(i, j), file=outstream)
    iN = iN+1
  for i in range(N2,(N2+N1-1)):
   for j in range(N1+N2-2,i-N2,-1):
    pos[iN,0] = j*a1[0]+i*a2[0]
    pos[iN,1] = j*a1[1]+i*a2[1]
-   print('{} {}'.format(i,j))
+   print('{} {}'.format(i,j), file=outstream)
    iN = iN+1
  pos = pos - np.mean(pos,axis=0) + np.array([X0, Y0, 0.0, 0.0, 0.0, 0.0], dtype=float)
  print_xyz(pos)
