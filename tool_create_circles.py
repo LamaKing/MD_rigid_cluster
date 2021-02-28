@@ -28,7 +28,7 @@ def create_cluster(input_cluster):
  print_xyz(pos)
  print_dat(pos)
 
-def create_cluster_circle(input_cluster, outstream=sys.stdout):
+def create_cluster_circle(input_cluster, outstream=sys.stdout, X0=0, Y0=0):
  file = open(input_cluster, 'r')
  N1, N2 = [int(x) for x in file.readline().split()]
  #DEBUG print("N1", N1, "N2", N2, file=sys.stderr)
@@ -53,7 +53,7 @@ def create_cluster_circle(input_cluster, outstream=sys.stdout):
  print(a2[0], a2[1], file=outstream)
  for i in range(iN):
   print(ipos[i,0], ipos[i,1], file=outstream)
- pos = pos - np.mean(pos,axis=0)
+ pos = pos - np.mean(pos,axis=0) + np.array([X0, Y0, 0.0, 0.0, 0.0, 0.0], dtype=float)
  print_xyz(pos)
  print_dat(pos)
  return pos
