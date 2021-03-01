@@ -61,4 +61,4 @@ if __name__ == "__main__":
  if (len(sys.argv)>2):
   X0 = sys.argv[2]
   Y0 = sys.argv[3]
- create_cluster(input_cluster, X0, Y0)
+ create_cluster_hex(input_cluster, X0=X0, Y0=Y0)
