@@ -83,8 +83,8 @@ def rotate(pos, angle):
     for i in range(pos.shape[0]):
         newx = pos[i,0] * np.cos(angle/180*np.pi) - pos[i,1] * np.sin(angle/180*np.pi)
         newy = pos[i,0] * np.sin(angle/180*np.pi) + pos[i,1] * np.cos(angle/180*np.pi)
-    pos[i,0] = newx
-    pos[i,1] = newy
+        pos[i,0] = newx
+        pos[i,1] = newy
     return pos
 
 def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
@@ -120,6 +120,17 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     dtheta = inputs['dtheta'] # [deg]
     print_skip = 100 # Timesteps to skip between prints
 
+    # Stuck config exit
+    min_Nsteps = 1e5 # min steps for average
+    omega_avglen = 20 # timesteps
+    omega_avg = 0 # store average of omega over given timesteps
+    omega_tol = 1e-10 # tolerance to consider the system stuck
+    if min_Nsteps < omega_avglen:
+        raise ValueError("Omega average length larger them minimum number of steps")
+
+    # Free running config
+    theta_max = 30+angle
+
     #-------- SETUP SYSTEM  -----------
     # create cluster
     pos = create_cluster(input_cluster, angle)[:,:2]
@@ -142,6 +153,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
 
     #-------- LANGEVIN ----------------
     #  Assumes rotation and translation indipendent.
+    # We just care about the scaling, not exact number.
     eta = 1   # Translational damping of single colloid
     etat_eff = eta*N           # CM translational viscosity
     #etar_eff = etat*np.sum(pos**2) # CM rotational viscosity. Prop N^(3/2) -> N^2
@@ -151,7 +163,6 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     print("Number of particles %i Eta trasl %.5g" % (N, eta), file=sys.stderr)
     print("Eta tras eff %.5g Eta roto eff %.5g" % (etat_eff, etar_eff), file=sys.stderr)
     print("Ratio roto/tras %.5g" % (etar_eff/etat_eff), file=sys.stderr)
-
 
     #-------- INFO FILE ---------------
     with open(info_fname, 'w') as infof:
@@ -188,6 +199,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
         angle += dangle
         # positions are further rotated
         pos = rotate(pos,dangle)
+        omega_avg += omega
 
         # Print progress
         if it % printerr_skip == 0:
@@ -204,6 +216,18 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
                     angle, omega, forces[0], forces[1], torque-T]
             print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
                            for val in data]), file=outstream)
+
+        # Compute omega average
+        if it % omega_avglen == 0:
+            omega_avg /= omega_avglen
+        # If system is stuck, exit
+        if np.abs(omega_avg) < omega_tol and it >= min_Nsteps:
+            print("System is stuck (omega=%10.4g)" % omega_avg, "Exit", file=sys.stderr)
+            break
+        # If system is rotating without stopping, exit
+        if angle >= theta_max and it >= min_Nsteps:
+            print("System is rotating freerly (angle=%10.4g)" % angle, "Exit", file=sys.stderr)
+            break
     #-----------------------
 
     # Print last step, if needed
