@@ -18,14 +18,15 @@ def calc_matrices_square(R,a,b):
 
 def calc_matrices_triangle(R,a,b):
     area = R*R*np.sqrt(3)/2.
-    #    Along y
+    # NN along y
     #    u     = np.array([[1,0], [-1./2, sqrt(3)/2]])*R/area
     #    u_inv = np.array([[sqrt(3)/2,0], [1/2,1]])*R
-    #   Along x, like tool_create does
+    # NN along x (like tool_create_hex/circ)
     u =     np.array([[np.sqrt(3)/2.,0.5], [0,1]])*R/area
     u_inv = np.array([[1,-0.5],            [0.0, np.sqrt(3)/2.]])*R
     return u, u_inv
 
+# Calculate matrix
 def calc_en_tan(pos, a, b, ww, epsilon, u, u_inv):
     en = 0
     F = np.zeros((2))
@@ -89,10 +90,15 @@ def rotate(pos, angle):
 
 def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     #-------- READ INPUTS -------------
-    with open(argv[0]) as inj:
-        inputs = json.load(inj)
+    if type(argv[0]) == dict:
+        inputs = argv[0]
+    elif type(argv[0]) == str:
+        with open(argv[0]) as inj:
+            inputs = json.load(inj)
+    else:
+        raise TypeError('Unrecognized input structure (no dict or filename str)', inputs)
 
-    print(inputs, file=sys.stderr)
+    print("Input dict", inputs, file=sys.stderr)
 
     # Cluster
     input_cluster = inputs['cluster_hex'] # Geom as lattice and Bravais points
@@ -119,18 +125,33 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     #dtheta = inputs['dtheta']*np.pi/180 # [deg] -> [rad]
     dtheta = inputs['dtheta'] # [deg]
     print_skip = 100 # Timesteps to skip between prints
+    try:
+       print_skip = inputs['print_skip']
+    except KeyError:
+        pass
+    print("Print every %i timesteps" % print_skip, file=sys.stderr)
 
     # Stuck config exit
     min_Nsteps = 1e5 # min steps for average
     omega_avglen = 20 # timesteps
     omega_avg = 0 # store average of omega over given timesteps
     omega_tol = 1e-10 # tolerance to consider the system stuck
+    try:
+        min_Nsteps, omega_avglen, omega_tol = inputs['min_Nsteps'], inputs['omega_avglen'], inputs['omega_tol']
+    except KeyError:
+        pass
+    print("Stuck val: N %i avglen %i tol %.4g" % (min_Nsteps, omega_avglen, omega_tol), file=sys.stderr)
+
     if min_Nsteps < omega_avglen:
         raise ValueError("Omega average length larger them minimum number of steps")
 
     # Free running config
     theta_max = 30+angle
-
+    try:
+        theta_max = inputs['theta_max']
+    except KeyError:
+        pass
+    print("Theta max =  %.4g" % theta_max, file=sys.stderr)
     #-------- SETUP SYSTEM  -----------
     # create cluster
     pos = create_cluster(input_cluster, angle)[:,:2]
@@ -166,22 +187,27 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
 
     #-------- INFO FILE ---------------
     with open(info_fname, 'w') as infof:
-        infod = {'eta': eta, 'etat_eff': etat_eff, 'etar_eff': etar_eff, 'N': N}
+        infod = {'eta': eta, 'etat_eff': etat_eff, 'etar_eff': etar_eff, 'N': N, 'theta_max': theta_max, 'print_skip': print_skip,
+                 'min_Nsteps': min_Nsteps, 'omega_avglen': omega_avglen, 'omega_tol': omega_tol
+        }
         infod.update(inputs)
         json.dump(infod, infof, indent=True)
 
     #-------- OUTPUT HEADER -----------
+    # Update with data printed during MD
     num_space = 30 # Width printed numerical values
     indlab_space = 2 # Header index width
     lab_space = num_space-indlab_space-1 # Match width of printed number, including parenthesis
-    header_labels = ['dt*it', 'e_pot', 'pos_cm[0]', 'pos_cm[1]', 'Vcm[0]', 'Vcm[1]',
+    header_labels = ['e_pot', 'pos_cm[0]', 'pos_cm[1]', 'Vcm[0]', 'Vcm[1]',
                      'angle', 'omega', 'forces[0]', 'forces[1]', 'torque-T']
-    print('#'+"".join(['{i:0{ni}d}){s: <{n}}'.format(i=il, s=lab, ni=indlab_space, n=lab_space,c=' ')
+    # Gnuplot-compatible (trailing #), fix-width output file
+    first = '#{i:0{ni}d}){s: <{n}}'.format(i=0, s='dt*it', ni=indlab_space, n=lab_space-1,c=' ')
+    print(first+"".join(['{i:0{ni}d}){s: <{n}}'.format(i=il+1, s=lab, ni=indlab_space, n=lab_space,c=' ')
                        for il, lab in zip(range(len(header_labels)), header_labels)]), file=outstream)
 
     #-------- START MD ----------------
-    printerr_skip = int(Nsteps/50)
-    t0 = time()
+    printerr_skip = int(Nsteps/50) # Progress output frequency
+    t0 = time() # Start clock
     for it in range(Nsteps):
         # energy is -epsilon inside well, 0 outside well. Continuous function in between.
         e_pot, forces = calc_en_tan(pos + pos_cm, a, b, wd, epsilon, u, u_inv)
@@ -204,11 +230,8 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
         # Print progress
         if it % printerr_skip == 0:
             print("t=%10.3g of %5.2g " % (it*dt, Nsteps*dt), "(%2i%%)" % (100.*it/Nsteps),
-                  "E=%15.7g" % e_pot, #"dE/dtheta=%10.3g" % torque,
-                  "x=%9.3g y=%9.3g" % (pos_cm[0], pos_cm[1]), "theta=%9.3g" % (angle), "omega=%9.3g" % omega,
-                  "|Vcm|=%9.3g" % (np.sqrt(Vcm[0]**2+Vcm[1]**2)), file=sys.stderr)
-            #print("E(+dtheta) %20.15g E(-dtheta) %20.15g" % (en_plus, en_minus), file=sys.stderr)
-            #print("dE/dtheta %20.15g" % (-(en_plus - en_minus)/dtheta/2), file=sys.stderr)
+                  "E=%15.7g" % e_pot, "x=%9.3g y=%9.3g" % (pos_cm[0], pos_cm[1]), "theta=%9.3g" % (angle),
+                  "omega=%9.3g" % omega, "|Vcm|=%9.3g" % (np.sqrt(Vcm[0]**2+Vcm[1]**2)), file=sys.stderr)
 
         # Print step results
         if it % print_skip == 0:
