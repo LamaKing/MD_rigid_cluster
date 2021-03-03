@@ -196,6 +196,13 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     print(first+"".join(['{i:0{ni}d}){s: <{n}}'.format(i=il+1, s=lab, ni=indlab_space, n=lab_space,c=' ')
                        for il, lab in zip(range(len(header_labels)), header_labels)]), file=outstream)
 
+    # Inner-scope shortcut for printing
+    def print_status():
+        data = [dt*it, e_pot, pos_cm[0], pos_cm[1], Vcm[0], Vcm[1],
+                angle, omega, forces[0], forces[1], torque-T]
+        print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
+                       for val in data]), file=outstream)
+
     #-------- START MD ----------------
     printerr_skip = int(Nsteps/50) # Progress output frequency
     t0 = time() # Start clock
@@ -226,10 +233,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
 
         # Print step results
         if it % print_skip == 0:
-            data = [dt*it, e_pot, pos_cm[0], pos_cm[1], Vcm[0], Vcm[1],
-                    angle, omega, forces[0], forces[1], torque-T]
-            print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
-                           for val in data]), file=outstream)
+            print_status()
 
         # Compute omega average
         if it % omega_avglen == 0:
@@ -246,10 +250,8 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
 
     # Print last step, if needed
     if it % print_skip != 0:
-        data = [dt*it, e_pot, pos_cm[0], pos_cm[1], Vcm[0], Vcm[1],
-                angle, omega, forces[0], forces[1], torque-T]
-        print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
-                       for val in data]), file=outstream)
+        print_status()
+
     # Print execution time
     t_exec = time()-t0
     print("Done in %is (%.2fmin or %.2fh)" % (t_exec, t_exec/60, t_exec/3600), file=sys.stderr)
