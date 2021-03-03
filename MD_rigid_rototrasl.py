@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 
 import sys
-import re
-import os
-import os.path
-import math
 import json
 import numpy as np
 from time import time
@@ -88,7 +84,8 @@ def rotate(pos, angle):
         pos[i,1] = newy
     return pos
 
-def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
+def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_fname='pos_rotate.dat'):
+
     #-------- READ INPUTS -------------
     if type(argv[0]) == dict:
         inputs = argv[0]
@@ -102,7 +99,6 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
 
     # Cluster
     input_cluster = inputs['cluster_hex'] # Geom as lattice and Bravais points
-    #angle = inputs['angle']*np.pi/180 # Starting angle [deg] -> [rad]
     angle = inputs['angle'] # Starting angle [deg]
 
     # Substrate
@@ -116,13 +112,11 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     # External torque T
     T = inputs['T'] # [zJ]
     # External force Fx, Fy
-    Fx = inputs['Fx'] # [fN]
-    Fy = inputs['Fy'] # [fN]
+    Fx, Fy = inputs['Fx'], inputs['Fy'] # [fN]
 
     # MD params
     Nsteps = inputs['Nsteps']
     dt = inputs['dt'] # [ms]
-    #dtheta = inputs['dtheta']*np.pi/180 # [deg] -> [rad]
     dtheta = inputs['dtheta'] # [deg]
     print_skip = 100 # Timesteps to skip between prints
     try:
@@ -132,12 +126,12 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     print("Print every %i timesteps" % print_skip, file=sys.stderr)
 
     # Stuck config exit
-    min_Nsteps = 1e5 # min steps for average
-    omega_avglen = 20 # timesteps
     omega_avg = 0 # store average of omega over given timesteps
+    omega_avglen = 20 # timesteps
+    min_Nsteps = 1e5 # min steps for average
     omega_tol = 1e-10 # tolerance to consider the system stuck
     try:
-        min_Nsteps, omega_avglen, omega_tol = inputs['min_Nsteps'], inputs['omega_avglen'], inputs['omega_tol']
+        min_Nsteps, omega_tol = inputs['min_Nsteps'], inputs['omega_tol']
     except KeyError:
         pass
     print("Stuck val: N %i avglen %i tol %.4g" % (min_Nsteps, omega_avglen, omega_tol), file=sys.stderr)
@@ -145,18 +139,19 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     if min_Nsteps < omega_avglen:
         raise ValueError("Omega average length larger them minimum number of steps")
 
-    # Free running config
-    theta_max = 30+angle
+    # Spinning config exit
+    theta_max = 30+angle # Exit if cluster rotates more than this
     try:
         theta_max = inputs['theta_max']
     except KeyError:
         pass
     print("Theta max =  %.4g" % theta_max, file=sys.stderr)
+
     #-------- SETUP SYSTEM  -----------
     # create cluster
     pos = create_cluster(input_cluster, angle)[:,:2]
-    np.savetxt('pos_rotate.dat', pos)
-    N = pos.shape[0]
+    np.savetxt(pos_fname, pos)
+    N = pos.shape[0] # Size of the cluster
 
     # define substrate metric
     if symmetry == 'square':
@@ -168,18 +163,14 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
     u, u_inv = calc_matrices(R,a,b)
 
     # initialise variable
-    forces = np.zeros(2)
-    torque = 0.
-    pos_cm = np.zeros(2)
+    forces, torque, pos_cm = np.zeros(2), 0., np.zeros(2)
 
     #-------- LANGEVIN ----------------
-    #  Assumes rotation and translation indipendent.
-    # We just care about the scaling, not exact number.
+    # Assumes rotation and translation indipendent. We just care about the scaling, not exact number.
     eta = 1   # Translational damping of single colloid
     etat_eff = eta*N           # CM translational viscosity
-    #etar_eff = etat*np.sum(pos**2) # CM rotational viscosity. Prop N^(3/2) -> N^2
+    #etar_eff = etat*np.sum(pos**2) # CM rotational viscosity. Prop to N^2
     etar_eff = eta*N**2 # Prot to N^2 without the radius and Stokes
-    #etat_eff, etar_eff = 1, 1
 
     print("Number of particles %i Eta trasl %.5g" % (N, eta), file=sys.stderr)
     print("Eta tras eff %.5g Eta roto eff %.5g" % (etat_eff, etar_eff), file=sys.stderr)
@@ -221,11 +212,11 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
         pos_cm[:] = pos_cm[:] + dt * Vcm
         # angle of cluster follows local torque.
         omega = (torque + T)/etar_eff
+        omega_avg += omega # Average omega to check if system is stuck. See omega_avglen
         dangle = dt*omega
         angle += dangle
         # positions are further rotated
         pos = rotate(pos,dangle)
-        omega_avg += omega
 
         # Print progress
         if it % printerr_skip == 0:
@@ -249,7 +240,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
             break
         # If system is rotating without stopping, exit
         if angle >= theta_max and it >= min_Nsteps:
-            print("System is rotating freerly (angle=%10.4g)" % angle, "Exit", file=sys.stderr)
+            print("System is rotating freely (angle=%10.4g)" % angle, "Exit", file=sys.stderr)
             break
     #-----------------------
 
@@ -259,9 +250,10 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json'):
                 angle, omega, forces[0], forces[1], torque-T]
         print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
                        for val in data]), file=outstream)
-    t1 = time()
-    t_exec = t1-t0
+    # Print execution time
+    t_exec = time()-t0
     print("Done in %is (%.2fmin or %.2fh)" % (t_exec, t_exec/60, t_exec/3600), file=sys.stderr)
 
+# Stand-alone scripting
 if __name__ == "__main__":
     MD_rigid_rototrasl(sys.argv[1:])
