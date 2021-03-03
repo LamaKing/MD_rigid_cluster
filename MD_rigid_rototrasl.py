@@ -142,7 +142,8 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
        print_skip = inputs['print_skip']
     except KeyError:
         pass
-    c_log.debug("Print every %i timesteps" % print_skip)
+    printprog_skip = int(Nsteps/20) # Progress output frequency
+    c_log.debug("Print every %i timesteps. Status update every %i." % (print_skip, printprog_skip))
 
     # Stuck config exit
     omega_avg = 0 # store average of omega over given timesteps
@@ -236,7 +237,6 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     c_log.info("Setup in %is (%.2fmin or %.2fh)", t_exec, t_exec/60, t_exec/3600)
 
     #-------- START MD ----------------
-    printerr_skip = int(Nsteps/20) # Progress output frequency
     t0 = time() # Start clock
     for it in range(Nsteps):
 
@@ -254,7 +254,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
         omega = (torque + T)/etar_eff
 
         # Print progress
-        if it % printerr_skip == 0:
+        if it % printprog_skip == 0:
             c_log.info("t=%10.3g of %5.2g (%2i%%) E=%15.7g  x=%9.3g y=%9.3g theta=%9.3g omega=%9.3g |Vcm|=%9.3g",
                        it*dt, Nsteps*dt, 100.*it/Nsteps, e_pot, pos_cm[0], pos_cm[1], angle, omega, np.sqrt(Vcm[0]**2+Vcm[1]**2))
 
