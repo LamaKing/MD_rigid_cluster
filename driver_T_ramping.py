@@ -10,7 +10,7 @@ import pandas as pd
 # Personal things
 from MD_rigid_rototrasl import MD_rigid_rototrasl
 
-def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', debug=False):
+def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', logger=None, debug=False):
     """Gradually increase external torque Tau until cluster spins."""
 
     # We're in a pickle if either the first or last is not spinning. Should do a check and restart with
@@ -19,11 +19,14 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
     # small, fixed steps to a huge, definitely depinning Torque, e.g. T=1e30.
 
     #-------- SET UP LOGGER -------------
-    c_log = logging.getLogger("driver_Tramp") # Set name of the function
-    # Adopted format: level - current function name - message. Width is fixed as visual aid.
-    logging.basicConfig(format='[%(levelname)5s - %(funcName)10s] %(message)s')
-    c_log.setLevel(logging.INFO)
-    if debug: c_log.setLevel(logging.DEBUG)
+    if logger == None:
+        c_log = logging.getLogger("driver_Tau_ramp") # Set name of the function
+        # Adopted format: level - current function name - message. Width is fixed as visual aid.
+        logging.basicConfig(format='[%(levelname)5s - %(funcName)10s] %(message)s')
+        c_log.setLevel(logging.INFO)
+        if debug: c_log.setLevel(logging.DEBUG)
+    else:
+        c_log = logger
 
     #-------- READ INPUTS -------------
     if type(argv[0]) == dict: # Inputs passed as python dictionary
@@ -90,7 +93,7 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
         c_outf = "out-%s-T_%.4g.dat" % (inputs['out_bname'], T)
         c_outinfo = "info-%s-T_%.4g.json" % (inputs['out_bname'], T)
         with open(c_outf, 'w') as c_out:
-            MD_rigid_rototrasl([MD_inputs], outstream=c_out, info_fname=c_outinfo, debug=debug)
+            MD_rigid_rototrasl([MD_inputs], outstream=c_out, info_fname=c_outinfo, logger=c_log, debug=debug)
 
         # ------ GET stationary Omega(T) ------
         data = pd.read_fwf(c_outf, infer_nrows=1e30) # Pandas has the tendency of underestimate column width

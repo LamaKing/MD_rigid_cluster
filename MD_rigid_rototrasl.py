@@ -87,17 +87,20 @@ def rotate(pos, angle):
         pos[i,1] = newy
     return pos
 
-def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_fname='pos_rotate.dat', debug=False):
+def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_fname='pos_rotate.dat', logger=None, debug=False):
     """Overdamped Langevin Molecular Dynamics of rigid cluster over a substrate"""
 
     t0 = time() # Start clock
 
     #-------- SET UP LOGGER -------------
-    c_log = logging.getLogger("MD_rigid_rototrasl") # Set name of the function
-    # Adopted format: level - current function name - message. Width is fixed as visual aid.
-    logging.basicConfig(format='[%(levelname)5s - %(funcName)10s] %(message)s')
-    c_log.setLevel(logging.INFO)
-    if debug: c_log.setLevel(logging.DEBUG)
+    if logger == None:
+        c_log = logging.getLogger("MD_rigid_rototrasl") # Set name of the function
+        # Adopted format: level - current function name - message. Width is fixed as visual aid.
+        logging.basicConfig(format='[%(levelname)5s - %(funcName)10s] %(message)s', stream=console)
+        c_log.setLevel(logging.INFO)
+        if debug: c_log.setLevel(logging.DEBUG)
+    else:
+        c_log = logger
 
     #-------- READ INPUTS -------------
     if type(argv[0]) == dict: # Inputs passed as python dictionary
