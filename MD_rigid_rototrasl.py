@@ -149,25 +149,29 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     omega_avg = 0 # store average of omega over given timesteps
     omega_avglen = 20 # timesteps
     try:
-        min_Nsteps, omega_tol = inputs['min_Nsteps'], inputs['omega_tol']
+        min_Nsteps, omega_min = inputs['min_Nsteps'], inputs['omega_min']
     except KeyError:
         # If not given, continue indefinitely: min steps huge.
         min_Nsteps = 1e30 # min steps for average. E.g. 1e5
-        omega_tol =  1e-10 # tolerance to consider the system stuck. Careful with sign!
+        omega_min =  1e-10 # tolerance to consider the system stuck. Careful with sign!
         pass
-    c_log.info("Stuck val: N %g avglen %i omega tol %.4g deg/ms" % (min_Nsteps, omega_avglen, omega_tol))
+    c_log.info("Stuck val: N %g avglen %i omega tol %.4g deg/ms" % (min_Nsteps, omega_avglen, omega_min))
 
     if min_Nsteps < omega_avglen:
         raise ValueError("Omega average length larger them minimum number of steps")
 
     # Spinning config exit
     try:
-        theta_max = inputs['theta_max']+angle
+        theta_max = inputs['theta_max']+angle # Exit if cluster rotates more than this
     except KeyError:
-        # If not given, continue indefinitely: theta_max huge.
-        theta_max = 1e30 # Exit if cluster rotates more than this
+        theta_max = 1e30 # If not given, continue indefinitely: theta_max huge.
         pass
-    c_log.info("Theta max =  %.4g deg" % theta_max)
+    try:
+        omega_max = inputs['omega_max'] # Exit if cluster rotates more than this
+    except KeyError:
+        omega_max = 1e30 # If not given, continue indefinitely: omega_max huge
+        pass
+    c_log.info("Theta max =  %.4g deg Omega max =  %.4g deg" % (theta_max, omega_max))
 
     #-------- SETUP SYSTEM  -----------
     # create cluster
@@ -196,8 +200,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     #etar_eff = etat*np.sum(pos**2) # CM rotational viscosity. Prop to N^2. Varying with shape as well.
     etar_eff = eta*N**2 # [micron^2*fKg/ms]
 
-    c_log.info("Number of particles %i Eta trasl %.5g" % (N, eta))
-    c_log.info("Eta tras eff %.5g Eta roto eff %.5g Ratio roto/tras %.5g" % (etat_eff, etar_eff, etar_eff/etat_eff))
+    c_log.info("Number of particles %i Eta trasl %.5g Eta tras eff %.5g Eta roto eff %.5g Ratio roto/tras %.5g" % (N, eta, etat_eff, etar_eff, etar_eff/etat_eff))
     c_log.info("T = %.4g fN*micron (T/N=%.4g)" % (T, T/N))
     c_log.debug("Free cluster would rotate %.2f deg", T/etar_eff * Nsteps * dt)
     c_log.info("Fx = %.4g fN (Fx/N=%.4g), Fy = %.4g fN (Fy/N=%.4g), |F| = %.4g fN (|F|/N=%.4g)",
@@ -207,7 +210,8 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     #-------- INFO FILE ---------------
     with open(info_fname, 'w') as infof:
         infod = {'eta': eta, 'etat_eff': etat_eff, 'etar_eff': etar_eff, 'N': N, 'theta_max': theta_max, 'print_skip': print_skip,
-                 'min_Nsteps': min_Nsteps, 'omega_avglen': omega_avglen, 'omega_tol': omega_tol, 'pos_cm': pos_cm.tolist()
+                 'min_Nsteps': min_Nsteps, 'omega_avglen': omega_avglen, 'omega_min': omega_min, 'omega_max': omega_max,
+                 'pos_cm': pos_cm.tolist()
         }
         infod.update(inputs)
         if debug: c_log.debug("Info dict\n %s" % ("\n".join(["%s: %s" % (k, type(v)) for k, v in infod.items()])))
@@ -270,18 +274,23 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
         # positions are further rotated
         pos = rotate(pos,dangle)
 
-        # Compute omega average
+        # Compute omega average and check for exit conditions
         omega_avg += omega # Average omega to check if system is stuck. See omega_avglen.
-        if it % omega_avglen == 0: omega_avg /= omega_avglen
-        # If system is stuck, exit
-        if np.abs(omega_avg) < omega_tol and it >= min_Nsteps:
-            c_log.info("System is stuck (omega=%10.4g). Exit." % omega_avg)
-            break
+        if it % omega_avglen == 0:
+            omega_avg /= omega_avglen
 
-        # If system is rotating without stopping, exit
-        if angle >= theta_max and it >= min_Nsteps:
-            c_log.info("System is rotating freely (angle=%10.4g). Exit." % angle)
-            break
+            # If system is stuck, exit
+            if np.abs(omega_avg) < omega_min and it >= min_Nsteps:
+                c_log.info("System is stuck (<omega>_%i=%10.4g). Exit." % (omega_avglen, omega_avg))
+                break
+
+            # If system is rotating without stopping, exit
+            if (angle >= theta_max or np.abs(omega_avg) >= omega_max) and it >= min_Nsteps:
+                c_log.info("System is rotating freely (angle=%10.4g <omega>_%i=%10.4g). Exit." % (angle, omega_avglen, omega_avg))
+                break
+
+            omega_avg = 0 # Reset average
+
     #-----------------------
 
     # Print last step, if needed
