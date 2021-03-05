@@ -75,15 +75,18 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
     num_space = 30 # Width printed numerical values
     indlab_space = 2 # Header index width
     lab_space = num_space-indlab_space-1 # Match width of printed number, including parenthesis
-    header_labels = ['T', 'omega', 'theta', 'pos_cm[0]', 'pos_cm[1]']
+    header_labels = ['omega', 'theta', 'pos_cm[0]', 'pos_cm[1]']
     # Gnuplot-compatible (leading #) fix-width output file
-    first = '#{i:0{ni}d}){s: <{n}}'.format(i=0, s='dt*it', ni=indlab_space, n=lab_space-1,c=' ')
+    first = '#{i:0{ni}d}){s: <{n}}'.format(i=0, s='T', ni=indlab_space, n=lab_space-1,c=' ')
     print(first+"".join(['{i:0{ni}d}){s: <{n}}'.format(i=il+1, s=lab, ni=indlab_space, n=lab_space,c=' ')
                        for il, lab in zip(range(len(header_labels)), header_labels)]), file=outstream)
 
     # Inner-scope shortcut for printing
     def print_status():
         data = [T, omega_fin, theta_fin, *pos_cm_fin]
+        c_log.debug('T omega theta pos_cm[0] pos_cm[1]')
+        c_log.debug(data)
+        c_log.debug([type(d) for d in data])
         print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
                        for val in data]), file=outstream)
 
@@ -109,7 +112,7 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
 
         c_outf = "out-%s-T_%.4g.dat" % (inputs['out_bname'], T)
         c_outinfo = "info-%s-T_%.4g.json" % (inputs['out_bname'], T)
-        c_posfile = 'pos-%s.dat' % (inputs['out_bname'], T)
+        c_posfile = 'pos-%s.dat' % inputs['out_bname']
         with open(c_outf, 'w') as c_out:
             MD_rigid_rototrasl([MD_inputs], outstream=c_out, info_fname=c_outinfo, pos_fname=c_posfile, logger=c_log, debug=debug)
 
@@ -118,7 +121,7 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
         tail_len = 20 # Average over this prints. Omega oscillates in a spinning config, so this is not 100% accurate.
         # Careful with the labels here, if they change, this breaks
         pos_cm_fin = np.reshape([data['02)pos_cm[0]'].tail(1), data['03)pos_cm[1]'].tail(1)], newshape=(2))
-        theta_fin, omega_fin = data['06)angle'].tail(1), data['07)omega'].tail(tail_len).mean()
+        theta_fin, omega_fin = data['06)angle'].tail(1).mean(), data['07)omega'].tail(tail_len).mean()
 
         print_status()
         outstream.flush() # Print progress as you go.
