@@ -220,7 +220,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
         if debug: c_log.debug("Info dict\n %s" % ("\n".join(["%s: %s" % (k, type(v)) for k, v in infod.items()])))
         json.dump(infod, infof, indent=True)
 
-    #-------- OUTPUT HEADER -----------
+    #-------- OUTPUT SETUP -----------
     # !! Labels and print_status data structures must be coherent !!
     num_space = 30 # Width printed numerical values
     indlab_space = 2 # Header index width
