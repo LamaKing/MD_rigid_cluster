@@ -92,8 +92,9 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
 
         c_outf = "out-%s-T_%.4g.dat" % (inputs['out_bname'], T)
         c_outinfo = "info-%s-T_%.4g.json" % (inputs['out_bname'], T)
+        c_posfile = 'pos-%s-T_%.4g.dat' % (inputs['out_bname'], T)
         with open(c_outf, 'w') as c_out:
-            MD_rigid_rototrasl([MD_inputs], outstream=c_out, info_fname=c_outinfo, logger=c_log, debug=debug)
+            MD_rigid_rototrasl([MD_inputs], outstream=c_out, info_fname=c_outinfo, pos_fname=c_posfile, logger=c_log, debug=debug)
 
         # ------ GET stationary Omega(T) ------
         data = pd.read_fwf(c_outf, infer_nrows=1e30) # Pandas has the tendency of underestimate column width
