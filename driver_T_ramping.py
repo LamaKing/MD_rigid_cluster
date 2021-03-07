@@ -36,7 +36,7 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
             inputs = json.load(inj)
     else:
         raise TypeError('Unrecognized input structure (no dict or filename str)', inputs)
-    c_log.info("Input dict \n%s", "\n".join(["%10s: %10s" % (k, str(v)) for k, v in inputs.items()]))
+    c_log.debug("Input dict \n%s", "\n".join(["%10s: %10s" % (k, str(v)) for k, v in inputs.items()]))
 
     Tau0, Tau1, dTau = inputs['Tau0'], inputs['Tau1'], inputs['dTau']
     Ntau = np.floor((Tau1-Tau0)/dTau)
@@ -101,7 +101,7 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
         # Extend MD steps according to current torque
         N_extra = Nsteps_scale/np.abs(T)
         MD_inputs['Nsteps'] = int(Nsteps0 + N_extra)
-        omega_threshold = np.abs(T)*rmobility*rmobility_frac # Stop if |omega| exceeds 10% of free cluster
+        omega_threshold = np.abs(T)*rmobility*rmobility_frac # Stop if |omega| exceeds fraction (e.g. 10%) of free cluster
         MD_inputs['omega_max'] =  omega_threshold
         if MD_inputs['omega_min'] > MD_inputs['omega_max']:
             c_log.warning("Breaking omegamin (%.3g) > omegamax (%.3g)" % (MD_inputs['omega_min'], MD_inputs['omega_max']))
