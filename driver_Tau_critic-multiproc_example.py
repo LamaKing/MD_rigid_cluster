@@ -14,7 +14,7 @@ from tool_create_circles import create_cluster_circle
 from tool_create_hexagons import create_cluster_hex
 from driver_T_ramping import driver_Tau_ramp
 
-def cluster_inhex_Nl(N1, N2,  a1 = np.array([4.45, 0]), a2 = np.array([-2.225, 3.85381304684075]),
+def cluster_inhex_Nl(N1, N2,  a1 = np.array([4.45, 0]), a2 = np.array([-4.45/2, 4.45*np.sqrt(3)/2]),
                      clgeom_fname = "input_circ.hex", cluster_f = create_cluster_circle):
     """Create input file in EP hex format for a cluster of Bravais size Nl"""
 
@@ -29,11 +29,13 @@ def cluster_inhex_Nl(N1, N2,  a1 = np.array([4.45, 0]), a2 = np.array([-2.225, 3
 
     return pos, clgeom_fname
 
-def sizeNl_Taucrit(Nl, MD_inputs, run_simul=True, run_anal=True,
-                   Tau_range='auto', clt_shape = 'hexagon', angle=0, theta1=30, theta_min='auto', rmobility_frac=0.1, offset=10,
-                   outfname=None, #outstream=sys.stdout,
-                   name=None, debug=False):
-        """Launch T ramp with given geometry and calclate Tau crit from results"""
+def sizeNl_Taucrit(Nl, TauN_range, MD_inputs, run_simul=True, run_anal=True,
+                   clt_shape = 'hexagon', angle=0, theta1=30, theta_min='auto', rmobility_frac=0.1,
+                   outfname=None, name=None, debug=False):
+        """Launch T ramp with given geometry and calclate Tau crit from results.
+
+        Limits of Tau range to explore are given per particle and tranformed within this function.
+        """
 
         if name == None:
             name = 'Nl_%i_Taucrit' % Nl
@@ -88,30 +90,34 @@ def sizeNl_Taucrit(Nl, MD_inputs, run_simul=True, run_anal=True,
         etar_eff = eta*N**2 # [micron^2*fKg/ms]
 
         # ------ DRIVER INPUT -----
-        if Tau_range == 'auto':
-            # Check static maps to get an idea. Can't scale faster than sqrt(N), only multiplier prefactor offset
-            Tau0, Tau1 = offset/2*N, 2*offset*N**(3/2)
-            # Set uncertainty on dTau...
-            #dTau = 1*N/5 # Allowed uncertainty on Tcritic
-            #Ntau = int((Tau1-Tau0)/dTau)
-            #if Ntau > 5e3: c_log.warning("realtively large Tau steps %i" % Ntau)
-            # ... or total number of Tau steps
-            Ntau = 300
-            dTau = (Tau1-Tau0)/Ntau
-        else:
-            Tau0, Tau1, dTau = Tau_range
+        #if Tau_range == 'auto':
+        #    # Check static maps to get an idea. Can't scale faster than sqrt(N), only multiplier prefactor offset
+        #    Tau0, Tau1 = offset/2*N, 2*offset*N**(3/2)
+        #    # Set uncertainty on dTau...
+        #    #dTau = 1*N/5 # Allowed uncertainty on Tcritic
+        #    #Ntau = int((Tau1-Tau0)/dTau)
+        #    #if Ntau > 5e3: c_log.warning("realtively large Tau steps %i" % Ntau)
+        #    # ... or total number of Tau steps
+        #    Ntau = 300
+        #    dTau = (Tau1-Tau0)/Ntau
+        #else:
+        #    Tau0, Tau1, dTau = Tau_range
+        Tau0, Tau1, dTau = N*np.array(TauN_range)
+        c_log.debug("Tau range %.2f %.2f %.2f" % (Tau0, Tau1, dTau))
 
         # Free cluster under a torque T moves at omega = T/etar_eff
         # Define 1/etar_eff as "roto-mobility" of the free cluster
         rmobility_free = 1/etar_eff
+
         # Free cluster would rotate this much at given Tau
         Nsteps_scale = theta1*etar_eff/MD_inputs['dt'] # Add to base Nsteps: Nsteps_scale/T. Decrease for larger torques.
+        c_log.info("Base run is %i steps + Nsteps(T) for free cluster to rotate %.2f deg" % (MD_inputs['Nsteps'], theta1))
+
         # If it start by rotatinig freerly, let first simul go at least angular width of well in commensurate case tan(th)=a/((Nl-1)*R)
         # !! CAREFUL WITH DIRECTIONAL LOCKING !!
         if theta_min == 'auto':
             theta_min = np.arctan((2*MD_inputs['a'])/MD_inputs['R']/(Nl-1))*180/np.pi
         MD_inputs['min_Nsteps'] = theta_min*etar_eff/MD_inputs['dt']/Tau0
-        c_log.info("Base run is %i steps + Nsteps(T) for free cluster to rotate %.2f deg" % (MD_inputs['Nsteps'], theta1))
         c_log.info("Minimum number of steps (%i): free cluster under Tau=%.2g rotates of %.2f deg" % (MD_inputs['min_Nsteps'], Tau0, theta_min))
 
         # Input dict for driver Tau ramp function
@@ -187,7 +193,7 @@ def sizeNl_Taucrit(Nl, MD_inputs, run_simul=True, run_anal=True,
 if __name__ == '__main__':
 
     t0 = time()
-    debug = False
+    debug = True
 
     #-------- SET UP LOGGER -------------
     c_log = logging.getLogger('driver') # Set name identifying the logger.
@@ -220,14 +226,13 @@ if __name__ == '__main__':
 
     # Fix the all arguments a part from Nl, so that we can use pool.map
     # Collect results as they come in. Backup in case we don't reach the ordered bit.
-    partial_sizeNl_Taucrit = partial(sizeNl_Taucrit, MD_inputs=MD_inputs, **{'run_simul': True,
-                                                                             'run_anal': True,
-                                                                             'theta_min': theta_min, # set min N steps so that free cluster would rotate this much
-                                                                             'angle': angle,
-                                                                             'Tau_range': 'auto', # scale Tau range according to static results
-                                                                             'offset': 0.3, # shift the static scaling according to specific system
-                                                                             'rmobility_frac': 0.1, # defintion of "unpinned" config
-                                                                             'debug':debug})
+    tau0, tau1, ntau = 0.2, 10, 100 # Check static results to choose a meaningful range
+    partial_sizeNl_Taucrit = partial(sizeNl_Taucrit,
+                                     TauN_range=[tau0, tau1, (tau1-tau0)/ntau], MD_inputs=MD_inputs,
+                                     **{'run_simul': True, 'run_anal': True,
+                                        'theta_min': theta_min, # set min N steps so that free cluster would rotate this much
+                                        'angle': angle, 'rmobility_frac': 0.1, # defintion of "unpinned" config
+                                        'debug':debug})
 
     # Launch all simulations with Pool of workers
     c_log.debug("Starting pool")
