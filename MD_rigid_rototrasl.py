@@ -96,7 +96,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     if logger == None:
         c_log = logging.getLogger("MD_rigid_rototrasl") # Set name of the function
         # Adopted format: level - current function name - message. Width is fixed as visual aid.
-        logging.basicConfig(format='[%(levelname)5s - %(funcName)10s] %(message)s', stream=console)
+        logging.basicConfig(format='[%(levelname)5s - %(funcName)10s] %(message)s')
         c_log.setLevel(logging.INFO)
         if debug: c_log.setLevel(logging.DEBUG)
     else:
