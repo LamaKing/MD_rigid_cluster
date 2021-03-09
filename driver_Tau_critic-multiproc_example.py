@@ -193,7 +193,7 @@ def sizeNl_Taucrit(Nl, TauN_range, MD_inputs, run_simul=True, run_anal=True,
 if __name__ == '__main__':
 
     t0 = time()
-    debug = True
+    debug = False
 
     #-------- SET UP LOGGER -------------
     c_log = logging.getLogger('driver') # Set name identifying the logger.
@@ -208,30 +208,32 @@ if __name__ == '__main__':
     # Substrate
     Rcl = 4.45 # Lattice spacing of cluster. Fixed by experiments.
     MD_inputs['epsilon'] = 105
-    MD_inputs['R'] = Rcl*np.sqrt(7)/2
+    MD_inputs['sub_symm'] = 'square'
+    MD_inputs['R'] = np.sqrt(3/2)*Rcl
     c_log.info("%s substrate: R=%.6g (bottom a=%.2g end curved b=%.2g) depth eps=%.4g" % tuple([MD_inputs[k]
                                                                                                 for k in ['sub_symm', 'R', 'a', 'b', 'epsilon']]))
     # MD params
-    MD_inputs['Nsteps'] = 1e6
+    MD_inputs['Nsteps'] = 2e6
+    MD_inputs['min_Nsteps'] = 1e6
     MD_inputs['omega_min'] = 1e-10
     MD_inputs['theta_max'] = 60 # If you rotate this far, you won't really stop, cluster symmetry.
-    theta_min = 10 # 'auto'
+    theta_min = 'auto'
     angle = 0
 
     # Set up system for multiprocess
     ncpu = os.cpu_count()
-    nworkers = 2
-    Nl_range = range(2,10) # Sizes to explore, in parallels
+    nworkers = 10
+    Nl_range = list(range(3,21,2)) + [25,40] # Sizes to explore, in parallels
     c_log.info("Running %i elements on %i processes on %i cores" % (len(Nl_range), nworkers, ncpu))
 
     # Fix the all arguments a part from Nl, so that we can use pool.map
     # Collect results as they come in. Backup in case we don't reach the ordered bit.
-    tau0, tau1, ntau = 0.2, 10, 100 # Check static results to choose a meaningful range
+    tau0, tau1, ntau = 0.1, 15, 100 # Check static results to choose a meaningful range
     partial_sizeNl_Taucrit = partial(sizeNl_Taucrit,
                                      TauN_range=[tau0, tau1, (tau1-tau0)/ntau], MD_inputs=MD_inputs,
                                      **{'run_simul': True, 'run_anal': True,
                                         'theta_min': theta_min, # set min N steps so that free cluster would rotate this much
-                                        'angle': angle, 'rmobility_frac': 0.1, # defintion of "unpinned" config
+                                        'clt_shape': 'circle', 'angle': angle, 'rmobility_frac': 0.1, # defintion of "unpinned" config
                                         'debug':debug})
 
     # Launch all simulations with Pool of workers
