@@ -1,0 +1,30 @@
+{
+ "eta": 1,
+ "etat_eff": 19,
+ "etar_eff": 361,
+ "N": 19,
+ "theta_max": 1e+30,
+ "print_skip": 100,
+ "min_Nsteps": 1e+30,
+ "omega_avglen": 20,
+ "omega_min": 1e-10,
+ "omega_max": 1e+30,
+ "pos_cm": [
+  0.0,
+  0.0
+ ],
+ "cluster_hex": "input_circ-Nl_3.hex",
+ "angle": 0.0,
+ "sub_symm": "triangle",
+ "a": 0.6,
+ "b": 2.0,
+ "R": 4.45,
+ "epsilon": 105,
+ "wd": 0.29,
+ "T": 190,
+ "Fx": 0,
+ "Fy": 0,
+ "Nsteps": 20000,
+ "dt": 0.001,
+ "dtheta": 0.01
+}
