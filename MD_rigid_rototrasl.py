@@ -277,6 +277,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
         # positions are further rotated
         pos = rotate(pos,dangle)
 
+        # CHECK FOR STOPPING CONDITIONS
         # Compute omega average and check for exit conditions
         omega_avg += omega # Average omega to check if system is stuck. See omega_avglen.
         if it % omega_avglen == 0:
