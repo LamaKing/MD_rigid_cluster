@@ -87,10 +87,14 @@ def rotate(pos, angle):
         pos[i,1] = newy
     return pos
 
-def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_fname='pos_rotate.dat', logger=None, debug=False):
+def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, pos_fname=None, logger=None, debug=False):
     """Overdamped Langevin Molecular Dynamics of rigid cluster over a substrate"""
 
     t0 = time() # Start clock
+
+    if name == None: name = 'MD_rigid_rototrasl'
+    if info_fname == None: info_fname = "info-%s.json" % name
+    if pos_fname == None: pos_fname = "pos-%s.json" % name
 
     #-------- SET UP LOGGER -------------
     if logger == None:
@@ -112,19 +116,16 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
         raise TypeError('Unrecognized input structure (no dict or filename str)', inputs)
     c_log.debug("Input dict \n%s", "\n".join(["%10s: %10s" % (k, str(v)) for k, v in inputs.items()]))
 
-    # Cluster
+    # -- Cluster --
     input_cluster = inputs['cluster_hex'] # Geom as lattice and Bravais points
-    try:
-        angle = inputs['angle'] # Starting angle [deg]
-    except KeyError:
-        angle = 0 # If not given, start aligned
-        pass
-    try:
-        pos_cm = np.array(inputs['pos_cm']) # Start pos [micron]
-    except KeyError:
-        pos_cm = np.zeros(2) # If not given, start from centre
+    pos_cm = np.zeros(2) # If not given, start from centre
+    angle = 0 # If not given, start aligned
+    try: angle = inputs['angle'] # Starting angle [deg]
+    except KeyError: pass
+    try: pos_cm = np.array(inputs['pos_cm']) # Start pos [micron]
+    except KeyError: pass
 
-    # Substrate
+    # -- Substrate --
     symmetry = inputs['sub_symm'] # Substrate symmetry (triangle or square)
     a = inputs['a'] # Well end radius [micron]
     b = inputs['b'] # Well slope radius [micron]
@@ -132,55 +133,53 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
     epsilon =  inputs['epsilon'] # Well depth [zJ]
 
-    # External torque T and external forces Fx, Fy
+    # -- MD params --
     T = inputs['T'] # [zJ]
     Fx, Fy = inputs['Fx'], inputs['Fy'] # [fN]
-
-    # MD params
     Nsteps = inputs['Nsteps']
     dt = inputs['dt'] # [ms]
     dtheta = inputs['dtheta'] # [deg]
     print_skip = 100 # Timesteps to skip between prints
-    try:
-       print_skip = inputs['print_skip']
-    except KeyError:
-        pass
+    try: print_skip = inputs['print_skip']
+    except KeyError: pass
     printprog_skip = int(Nsteps/20) # Progress output frequency
     c_log.debug("Print every %i timesteps. Status update every %i." % (print_skip, printprog_skip))
 
-    # Stuck config exit
-    omega_avg = 0 # store average of omega over given timesteps
-    omega_avglen = 20 # timesteps
-    try:
-        min_Nsteps, omega_min = inputs['min_Nsteps'], inputs['omega_min']
-    except KeyError:
-        # If not given, continue indefinitely: min steps huge.
-        min_Nsteps = 1e30 # min steps for average. E.g. 1e5
-        omega_min =  1e-10 # tolerance to consider the system stuck. Careful with sign!
-        pass
-    c_log.info("Stuck val: N %g avglen %i omega tol %.4g deg/ms" % (min_Nsteps, omega_avglen, omega_min))
+    # -- Simulation break conditions --
+    omega_avg, vel_avg = 0, 0 # store average of omega and velox over given timesteps
+    avglen = 100 # timesteps
+    min_Nsteps = 1e30 # min steps for average. E.g. 1e5
+    omega_min, omega_max = 0, 1e30 # tolerance to consider the system stuck or depinned. Careful with sign!
+    vel_min, vel_max = 0, 1e30     # If not given, continue indefinitely: omega_max huge
+    rcm_max, theta_max = 1e30, 1e30
 
-    if min_Nsteps < omega_avglen:
-        raise ValueError("Omega average length larger them minimum number of steps")
+    # Set Stuck config exit
+    try: min_Nsteps = inputs['min_Nsteps']
+    except KeyError: pass # If not given, continue indefinitely: min steps huge.
+    try: omega_min = inputs['omega_min']
+    except KeyError: pass
+    try: vel_min = inputs['vel_min']
+    except KeyError: pass
+    c_log.info("Stuck: Nmin %g avglen %i omega tol %.4g deg/ms velox tol %.4g micron/ms" % (min_Nsteps, avglen, omega_min, vel_min))
+    if min_Nsteps < avglen: raise ValueError("Omega/Velocity average length larger them minimum number of steps!")
 
-    # Spinning config exit
-    try:
-        theta_max = inputs['theta_max']+angle # Exit if cluster rotates more than this
-    except KeyError:
-        theta_max = 1e30 # If not given, continue indefinitely: theta_max huge.
-        pass
-    try:
-        omega_max = inputs['omega_max'] # Exit if cluster rotates more than this
-    except KeyError:
-        omega_max = 1e30 # If not given, continue indefinitely: omega_max huge
-        pass
-    c_log.info("Theta max =  %.4g deg Omega max =  %.4g deg" % (theta_max, omega_max))
+    # Set pinning config exit
+    try: theta_max = inputs['theta_max']+angle # Exit if cluster rotates more than this
+    except KeyError: pass
+    try: rcm_max = inputs['rcm_max']+np.linalg.norm(pos_cm) # Exit if cluster slides more than this
+    except KeyError: pass
+    try: omega_max = inputs['omega_max'] # Exit if cluster rotates faster than this
+    except KeyError: pass
+    try: vel_max = inputs['vel_max'] # Exit if cluster rotates more than this
+    except KeyError: pass
+    c_log.info("Depin: Theta max = %.4g deg Omega max = %.4g deg/ms velox max = %.4g micron/ms" % (theta_max, omega_max, vel_max))
 
     #-------- SETUP SYSTEM  -----------
     # create cluster
     pos = create_cluster(input_cluster, angle)[:,:2]
     np.savetxt(pos_fname, pos)
     N = pos.shape[0] # Size of the cluster
+    c_log.info("Cluster N=%i start at (x,y,theta)=(%.3g,%.3g,%.3g)" % (N, *pos_cm, angle))
 
     # define substrate metric
     if symmetry == 'square':
@@ -190,6 +189,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     else:
         raise ValueError("Symmetry %s not implemented" % symmetry)
     u, u_inv = calc_matrices(R)
+    c_log.info("%s substrate R=%.3g" % (symmetry, R))
 
     # initialise variable
     forces, torque = np.zeros(2), 0.
@@ -213,7 +213,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
     #-------- INFO FILE ---------------
     with open(info_fname, 'w') as infof:
         infod = {'eta': eta, 'etat_eff': etat_eff, 'etar_eff': etar_eff, 'N': N, 'theta_max': theta_max, 'print_skip': print_skip,
-                 'min_Nsteps': min_Nsteps, 'omega_avglen': omega_avglen, 'omega_min': omega_min, 'omega_max': omega_max,
+                 'min_Nsteps': min_Nsteps, 'avglen': avglen, 'omega_min': omega_min, 'omega_max': omega_max,
                  'pos_cm': pos_cm.tolist()
         }
         infod.update(inputs)
@@ -263,7 +263,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
         # Print progress
         if it % printprog_skip == 0:
             c_log.info("t=%10.3g of %5.2g (%2i%%) E=%15.7g  x=%9.3g y=%9.3g theta=%9.3g omega=%9.3g |Vcm|=%9.3g",
-                       it*dt, Nsteps*dt, 100.*it/Nsteps, e_pot, pos_cm[0], pos_cm[1], angle, omega, np.sqrt(Vcm[0]**2+Vcm[1]**2))
+                       it*dt, Nsteps*dt, 100.*it/Nsteps, e_pot, pos_cm[0], pos_cm[1], angle, omega, np.linalg.norm(Vcm))
 
         # Print step results
         if it % print_skip == 0: print_status()
@@ -279,22 +279,31 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, info_fname='info.json', pos_f
 
         # CHECK FOR STOPPING CONDITIONS
         # Compute omega average and check for exit conditions
-        omega_avg += omega # Average omega to check if system is stuck. See omega_avglen.
-        if it % omega_avglen == 0:
-            omega_avg /= omega_avglen
+        omega_avg += omega # Average omega to check if system is stuck. See avglen.
+        vel_avg += np.linalg.norm(Vcm) # Average omega to check if system is stuck. See avglen.
+        if it % avglen == 0:
+            omega_avg /= avglen
+            vel_avg /= avglen
+            rcm = np.linalg.norm(pos_cm)
 
             # If system is stuck, exit
             if np.abs(omega_avg) < omega_min and it >= min_Nsteps:
-                c_log.info("System is stuck (<omega>_%i=%10.4g). Exit." % (omega_avglen, omega_avg))
+                c_log.info("System is stuck (<omega>_%i=%10.4g). Exit." % (avglen, omega_avg))
+                break
+            if np.abs(vel_avg) < vel_min and it >= min_Nsteps:
+                c_log.info("System is stuck (<v>_%i=%10.4g). Exit." % (avglen, vel_avg))
                 break
 
             # If system is rotating without stopping, exit
             if (angle >= theta_max or np.abs(omega_avg) >= omega_max) and it >= min_Nsteps:
-                c_log.info("System is rotating freely (angle=%10.4g <omega>_%i=%10.4g). Exit." % (angle, omega_avglen, omega_avg))
+                c_log.info("System is depinned (angle=%10.4g <omega>_%i=%10.4g). Exit." % (angle, avglen, omega_avg))
+                break
+            if (rcm >= rcm_max or vel_avg >= vel_max) and it >= min_Nsteps:
+                c_log.info("System is depinned (rcm=%10.4g <v>_%i=%10.4g). Exit." % (rcm, avglen, vel_avg))
                 break
 
             omega_avg = 0 # Reset average
-
+            vel_avg = 0
     #-----------------------
 
     # Print last step, if needed
