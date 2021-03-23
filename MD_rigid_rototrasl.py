@@ -146,6 +146,10 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     c_log.debug("Print every %i timesteps. Status update every %i." % (print_skip, printprog_skip))
 
     # -- Simulation break conditions --
+    both_breaks = True # Break if both V and omega satisfy conditions
+    try: break_both = inputs['both_breaks']
+    except KeyError: pass
+    break_omega, break_V = False, False
     omega_avg, vel_avg = 0, 0 # store average of omega and velox over given timesteps
     avglen = 100 # timesteps
     min_Nsteps = 1e30 # min steps for average. E.g. 1e5
@@ -180,6 +184,27 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     np.savetxt(pos_fname, pos)
     N = pos.shape[0] # Size of the cluster
     c_log.info("Cluster N=%i start at (x,y,theta)=(%.3g,%.3g,%.3g)" % (N, *pos_cm, angle))
+
+    # Check dtheta is sensible
+    max_r = np.max(np.linalg.norm(pos, axis=1))
+    #if dtheta == 'auto':
+    #    if inputs['en_form'] == 'tanh':
+    #        # Realistic well energy landscape
+    #        a = inputs['a'] # Well end radius [micron]
+    #        b = inputs['b'] # Well slope radius [micron]
+    #        wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
+    #        dtheta = (a+b)/2/max_r
+    #        c_log.info("Adopted dtheta=(a+b)/2/max_r=%.4g" % dtheta)
+    #    elif inputs['en_form'] == 'gaussian':
+    #        # Gaussian energy landscape
+    #        sigma = inputs['sigma'] # Width of Gaussian
+    #        dtheta = (sigma)/2/max_r
+    #        c_log.info("Adopted dtheta=(sigma)/2/max_r=%.4g" % dtheta)
+    #else:
+    #    max_dr = dtheta*max_r
+    max_dr = dtheta*max_r
+    if max_dr > (b+a):
+        c_log.warning("WARNING: max displacment exceeds well angular width: %.2f (dtheta*r_max) > %.2f ((a+b))" % (max_dr, a+b))
 
     # define substrate metric
     if symmetry == 'square':
@@ -217,7 +242,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
                  'pos_cm': pos_cm.tolist()
         }
         infod.update(inputs)
-        if debug: c_log.debug("Info dict\n %s" % ("\n".join(["%s: %s" % (k, type(v)) for k, v in infod.items()])))
+        #if debug: c_log.debug("Info dict\n %s" % ("\n".join(["%s: %s" % (k, type(v)) for k, v in infod.items()])))
         json.dump(infod, infof, indent=True)
 
     #-------- OUTPUT SETUP -----------
@@ -256,6 +281,9 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
         # add external torque
         torque = -(en_plus - en_minus)/dtheta/2
 
+        #if it % printprog_skip == 0:
+        #    c_log.debug("Forces %s " % str(forces))
+        #    c_log.debug("Forces + F_ext %s " % str(forces+[Fx, Fy]))
         Vcm = (forces + [Fx, Fy])/etat_eff
 
         omega = (torque + T)/etar_eff
@@ -270,7 +298,10 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
         # UPDATE DEGREES OF FREEDOM
         # center of mass follows local forces.
-        pos_cm[:] = pos_cm[:] + dt * Vcm
+        #if it % printprog_skip == 0:
+        #    c_log.debug("Pos_cm: %s" % str(pos_cm))
+        #    c_log.debug("Pos_cm + V dt: %s" % str(pos_cm+Vcm*dt))
+        pos_cm = pos_cm + dt * Vcm
         # angle of cluster follows local torque.
         dangle = dt*omega
         angle += dangle
@@ -286,20 +317,29 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
             vel_avg /= avglen
             rcm = np.linalg.norm(pos_cm)
 
-            # If system is stuck, exit
-            if np.abs(omega_avg) < omega_min and it >= min_Nsteps:
-                c_log.info("System is stuck (<omega>_%i=%10.4g). Exit." % (avglen, omega_avg))
-                break
-            if np.abs(vel_avg) < vel_min and it >= min_Nsteps:
-                c_log.info("System is stuck (<v>_%i=%10.4g). Exit." % (avglen, vel_avg))
-                break
+            # If system is stuck, set flag to exit
+            if np.abs(omega_avg) < omega_min and it >= min_Nsteps: break_omega = True
+            if np.abs(vel_avg) < vel_min and it >= min_Nsteps: break_V = True
 
-            # If system is rotating without stopping, exit
-            if (angle >= theta_max or np.abs(omega_avg) >= omega_max) and it >= min_Nsteps:
-                c_log.info("System is depinned (angle=%10.4g <omega>_%i=%10.4g). Exit." % (angle, avglen, omega_avg))
-                break
-            if (rcm >= rcm_max or vel_avg >= vel_max) and it >= min_Nsteps:
-                c_log.info("System is depinned (rcm=%10.4g <v>_%i=%10.4g). Exit." % (rcm, avglen, vel_avg))
+            # If system is rotating or sliding without stopping, set flag to exit
+            if (angle >= theta_max or np.abs(omega_avg) >= omega_max) and it >= min_Nsteps: break_omega = True
+            if (rcm >= rcm_max or vel_avg >= vel_max) and it >= min_Nsteps: break_V = True
+
+            # Break if either or both condistions are satisfied
+            if ((break_omega and break_V) and both_breaks) or ((break_omega or break_V) and not both_breaks):
+                # Values
+                c_log.info("Rotational: angle=%10.4g <omega>_%i=%10.4g" % (angle, avglen, omega_avg))
+                c_log.info("Translationa: rcm=%10.4g <v>_%i=%10.4g" % (rcm, avglen, vel_avg))
+                # Pinned check
+                if np.abs(omega_avg) < omega_min: c_log.info("System is roto-pinned (omega min=%.4g)." % (omega_min))
+                if np.abs(vel_avg) < vel_min: c_log.info("System is roto-pinned (vel_min=%.4g)." % (vel_min))
+                # Depinned check
+                if (angle >= theta_max or np.abs(omega_avg) >= omega_max):
+                    c_log.info("System is roto-depinned (theta max=%10.4g omega max=%10.4g)" % (theta_max, omega_max))
+                if (rcm >= rcm_max or vel_avg >= vel_max):
+                    c_log.info("System is trasl-depinned (rcm max=%10.4g vel max=%10.4g)" % (rcm_max, vel_max))
+                # Exit conditions
+                c_log.info("Breaking condition (%s) satisfied. Exit" % ('both omega and Vcm' if both_breaks else 'single'))
                 break
 
             omega_avg = 0 # Reset average
