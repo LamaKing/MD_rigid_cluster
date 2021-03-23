@@ -69,20 +69,20 @@ def driver_F_ramp(argv, outstream=sys.stdout, info_fname='info-rampF.json', logg
 
 
     #-------- OUTPUT HEADER -----------
-    # !! Labels and print_status data structures must be coherent !!
+   # !! Labels and print_status data structures must be coherent !!
     num_space = 30 # Width printed numerical values
     indlab_space = 2 # Header index width
     lab_space = num_space-indlab_space-1 # Match width of printed number, including parenthesis
-    header_labels = ['Fy', 'Vx', 'Vy', 'pos_cm[0]', 'pos_cm[1]', 'omega', 'theta']
+    header_labels = ['Fx', 'Fy', 'omega', 'V_cm[0]', 'V_cm[1]', 'theta', 'pos_cm[0]', 'pos_cm[1]']
     # Gnuplot-compatible (leading #) fix-width output file
-    first = '#{i:0{ni}d}){s: <{n}}'.format(i=0, s='Fx', ni=indlab_space, n=lab_space-1,c=' ')
+    first = '#{i:0{ni}d}){s: <{n}}'.format(i=0, s='T', ni=indlab_space, n=lab_space-1,c=' ')
     print(first+"".join(['{i:0{ni}d}){s: <{n}}'.format(i=il+1, s=lab, ni=indlab_space, n=lab_space,c=' ')
                        for il, lab in zip(range(len(header_labels)), header_labels)]), file=outstream)
 
     # Inner-scope shortcut for printing
     def print_status():
-        data = [Fx, Fy, Vx_fin, Vy_fin, *pos_cm_fin, omega_fin, theta_fin]
-        c_log.debug('Fx Fy Vx Vy pos_cm[0] pos_cm[1] omega theta')
+        data = [T, Fx, Fy, omega_fin, Vx_fin, Vy_fin, theta_fin, *pos_cm_fin]
+        c_log.debug('T Fx Fy omega Vx Vy theta pos_cm[0] pos_cm[1]')
         c_log.debug(data)
         c_log.debug([type(d) for d in data])
         print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)

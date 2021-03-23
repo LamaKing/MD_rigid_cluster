@@ -10,7 +10,7 @@ import pandas as pd
 # Personal things
 from MD_rigid_rototrasl import MD_rigid_rototrasl
 
-def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', logger=None, debug=False):
+def driver_Tau_ramp(argv, outstream=sys.stdout, name=None, info_fname=None, logger=None, debug=False):
     """Gradually increase external torque Tau until cluster spins."""
 
     # We're in a pickle if either the first or last is not spinning. Should do a check and restart with
@@ -18,9 +18,12 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
     # A simple yet inefficient way around it is to start from small, surely pinned config and go up in
     # small, fixed steps to a huge, definitely depinning Torque, e.g. T=1e30.
 
+    if name == None: name = 'Tau_ramp'
+    if info_fname == None: info_fname = "info-%s.json" % name
+
     #-------- SET UP LOGGER -------------
     if logger == None:
-        c_log = logging.getLogger("driver_Tau_ramp") # Set name of the function
+        c_log = logging.getLogger(name) # Set name of the function
         # Adopted format: level - current function name - message. Width is fixed as visual aid.
         logging.basicConfig(format='[%(levelname)5s - %(funcName)10s] %(message)s')
         c_log.setLevel(logging.INFO)
@@ -75,7 +78,7 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
     num_space = 30 # Width printed numerical values
     indlab_space = 2 # Header index width
     lab_space = num_space-indlab_space-1 # Match width of printed number, including parenthesis
-    header_labels = ['omega', 'theta', 'pos_cm[0]', 'pos_cm[1]']
+    header_labels = ['Fx', 'Fy', 'omega', 'V_cm[0]', 'V_cm[1]', 'theta', 'pos_cm[0]', 'pos_cm[1]']
     # Gnuplot-compatible (leading #) fix-width output file
     first = '#{i:0{ni}d}){s: <{n}}'.format(i=0, s='T', ni=indlab_space, n=lab_space-1,c=' ')
     print(first+"".join(['{i:0{ni}d}){s: <{n}}'.format(i=il+1, s=lab, ni=indlab_space, n=lab_space,c=' ')
@@ -83,8 +86,8 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
 
     # Inner-scope shortcut for printing
     def print_status():
-        data = [T, omega_fin, theta_fin, *pos_cm_fin]
-        c_log.debug('T omega theta pos_cm[0] pos_cm[1]')
+        data = [T, Fx, Fy, omega_fin, Vx_fin, Vy_fin, theta_fin, *pos_cm_fin]
+        c_log.debug('T Fx Fy omega Vx Vy theta pos_cm[0] pos_cm[1]')
         c_log.debug(data)
         c_log.debug([type(d) for d in data])
         print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
@@ -122,7 +125,9 @@ def driver_Tau_ramp(argv, outstream=sys.stdout, info_fname='info-rampTau.json', 
         # Careful with the labels here, if they change, this breaks
         pos_cm_fin = np.reshape([data['02)pos_cm[0]'].tail(1), data['03)pos_cm[1]'].tail(1)], newshape=(2))
         theta_fin, omega_fin = data['06)angle'].tail(1).mean(), data['07)omega'].tail(tail_len).mean()
-
+        Vx_fin, Vy_fin = data['04)Vcm[0]'].tail(1).mean(), data['05)Vcm[1]'].tail(tail_len).mean()
+        V_fin = np.linalg.norm([Vx_fin, Vy_fin])
+        Rcm_fin = np.linalg.norm(pos_cm_fin)
         print_status()
         outstream.flush() # Print progress as you go.
 
