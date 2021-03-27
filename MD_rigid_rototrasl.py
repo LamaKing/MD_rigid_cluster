@@ -60,6 +60,23 @@ def calc_en_tan(pos, a, b, ww, epsilon, u, u_inv):
     F[1] = np.sum(vecF*Yin/Rin)
     return en, F
 
+def calc_en_gaussian(pos, sigma, epsilon, u, u_inv):
+    Xp = pos[:,0]*u[0,0] + pos[:,1]*u[0,1]
+    Yp = pos[:,0]*u[1,0] + pos[:,1]*u[1,1]
+    Xp -= np.floor(Xp + 0.5)
+    Yp -= np.floor(Yp + 0.5)
+    X = Xp*u_inv[0, 0] + Yp*u_inv[0, 1]
+    Y = Xp*u_inv[1, 0] + Yp*u_inv[1, 1]
+    R  = np.sqrt(X*X+Y*Y)
+    off = R != 0
+    en = -epsilon*np.sum(gaussian(R[off], 0, sigma))
+    FX = epsilon*gaussian(R[off],0,sigma) * (R[off] / np.power(sigma, 2.)) * X[off] / R[off]
+    FY = epsilon*gaussian(R[off],0,sigma) * (R[off] / np.power(sigma, 2.)) * Y[off] / R[off]
+    return en, [np.sum(FX), np.sum(FY)]
+
+def gaussian(x, mu, sig):
+    return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.))) / (2. * np.pi * np.power(sig, 2.))
+
 def create_cluster(input_cluster, angle):
     """create clusters taking as input the two primitive vectors a1 and a2
     and the integer couples describing their positions.
@@ -127,6 +144,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
     # -- Substrate --
     symmetry = inputs['sub_symm'] # Substrate symmetry (triangle or square)
+    well_shape = inputs['well_shape'] # Substrate well shape (Gaussian or Tanh)
     a = inputs['a'] # Well end radius [micron]
     b = inputs['b'] # Well slope radius [micron]
     R = inputs['R'] # Well lattice spacing [micron]
@@ -136,6 +154,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     # -- MD params --
     T = inputs['T'] # [zJ]
     Fx, Fy = inputs['Fx'], inputs['Fy'] # [fN]
+    F = np.array([Fx, Fy])
     Nsteps = inputs['Nsteps']
     dt = inputs['dt'] # [ms]
     dtheta = inputs['dtheta'] # [deg]
@@ -187,21 +206,6 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
     # Check dtheta is sensible
     max_r = np.max(np.linalg.norm(pos, axis=1))
-    #if dtheta == 'auto':
-    #    if inputs['en_form'] == 'tanh':
-    #        # Realistic well energy landscape
-    #        a = inputs['a'] # Well end radius [micron]
-    #        b = inputs['b'] # Well slope radius [micron]
-    #        wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
-    #        dtheta = (a+b)/2/max_r
-    #        c_log.info("Adopted dtheta=(a+b)/2/max_r=%.4g" % dtheta)
-    #    elif inputs['en_form'] == 'gaussian':
-    #        # Gaussian energy landscape
-    #        sigma = inputs['sigma'] # Width of Gaussian
-    #        dtheta = (sigma)/2/max_r
-    #        c_log.info("Adopted dtheta=(sigma)/2/max_r=%.4g" % dtheta)
-    #else:
-    #    max_dr = dtheta*max_r
     max_dr = dtheta*max_r
     if max_dr > (b+a):
         c_log.warning("WARNING: max displacment exceeds well angular width: %.2f (dtheta*r_max) > %.2f ((a+b))" % (max_dr, a+b))
@@ -214,7 +218,23 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     else:
         raise ValueError("Symmetry %s not implemented" % symmetry)
     u, u_inv = calc_matrices(R)
-    c_log.info("%s substrate R=%.3g" % (symmetry, R))
+
+    if well_shape == 'tanh':
+        # Realistic well energy landscape
+        calc_en_f = calc_en_tan
+        a = inputs['a'] # Well end radius [micron]
+        b = inputs['b'] # Well slope radius [micron]
+        wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
+        en_params = [a, b, wd, epsilon, u, u_inv]
+    elif well_shape == 'gaussian':
+        # Gaussian energy landscape
+        sigma = inputs['sigma'] # Width of Gaussian
+        en_params = [sigma, epsilon, u, u_inv]
+        calc_en_f = calc_en_gaussian
+    else:
+        raise ValueError("Form %s not implemented" % well_shape)
+
+    c_log.info("%s substrate R=%.3g %s well shape" % (symmetry, R, well_shape))
 
     # initialise variable
     forces, torque = np.zeros(2), 0.
@@ -274,17 +294,17 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
         # SOLVE DYNAMICS
         # energy is -epsilon inside well, 0 outside well. Continuous function in between.
-        e_pot, forces = calc_en_tan(pos + pos_cm, a, b, wd, epsilon, u, u_inv)
+        e_pot, forces = calc_en_f(pos + pos_cm, *en_params)
         # torque is T = - dE / dTheta = - (E(theta+) - E(theta-)) / 2dTheta
-        en_plus, _ = calc_en_tan(rotate(pos, dtheta) + pos_cm, a, b, wd, epsilon, u, u_inv)
-        en_minus,_ = calc_en_tan(rotate(pos,-dtheta) + pos_cm, a, b, wd, epsilon, u, u_inv)
+        en_plus, _ = calc_en_f(rotate(pos, dtheta) + pos_cm,  *en_params)
+        en_minus,_ = calc_en_f(rotate(pos,-dtheta) + pos_cm,  *en_params)
         # add external torque
         torque = -(en_plus - en_minus)/dtheta/2
 
         #if it % printprog_skip == 0:
         #    c_log.debug("Forces %s " % str(forces))
         #    c_log.debug("Forces + F_ext %s " % str(forces+[Fx, Fy]))
-        Vcm = (forces + [Fx, Fy])/etat_eff
+        Vcm = (forces + F)/etat_eff
 
         omega = (torque + T)/etar_eff
 
