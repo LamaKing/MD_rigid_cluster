@@ -260,7 +260,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     # Inner-scope shortcut for printing
     def print_status():
         data = [dt*it, e_pot, pos_cm[0], pos_cm[1], Vcm[0], Vcm[1],
-                angle, omega, forces[0], forces[1], torque-T]
+                angle, omega, forces[0], forces[1], torque]
         print("".join(['{n:<{nn}.16g}'.format(n=val, nn=num_space)
                        for val in data]), file=outstream)
 
