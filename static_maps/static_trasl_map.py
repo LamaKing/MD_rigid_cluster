@@ -289,7 +289,7 @@ if __name__ == "__main__":
     # Set up system for multiprocess
     ncpu = os.cpu_count()
     nworkers = 4
-    Nl_range = [3, 5, 10, 30] # Sizes to explore, in parallels
+    Nl_range = [4, 10] # Sizes to explore, in parallels
     c_log.info("Running %i elements on %i processes on %i cores" % (len(Nl_range), nworkers, ncpu))
 
     # Fix the all arguments a part from Nl, so that we can use pool.map
