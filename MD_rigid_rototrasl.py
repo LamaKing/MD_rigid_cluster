@@ -4,88 +4,10 @@ import sys
 import json
 import logging
 import numpy as np
+from numpy.linalg import norm as npnorm
 from time import time
-
-# calcolates simple matrix for mapping clusters colloids into primitive cell and viceversa.
-def calc_matrices_square(R):
-    """Metric matrices of square lattice of spacing R"""
-    area = R*R
-    u     = np.array([[1,0], [0,1]])*R/area
-    u_inv = np.array([[1,0], [0,1]])*R
-    return u, u_inv
-
-def calc_matrices_triangle(R):
-    """Metric matrices of triangular lattice of spacing R"""
-    area = R*R*np.sqrt(3)/2.
-    # NN along y
-    #    u     = np.array([[1,0], [-1./2, sqrt(3)/2]])*R/area
-    #    u_inv = np.array([[sqrt(3)/2,0], [1/2,1]])*R
-    # NN along x (like tool_create_hex/circ)
-    u =     np.array([[np.sqrt(3)/2.,0.5], [0,1]])*R/area
-    u_inv = np.array([[1,-0.5],            [0.0, np.sqrt(3)/2.]])*R
-    return u, u_inv
-
-def calc_en_tan(pos, a, b, ww, epsilon, u, u_inv):
-    """Calculate energy and forces. Well is approximated with tanh function."""
-    en = 0
-    F = np.zeros((2))
-    # map to substrate cell
-    Xp = pos[:,0]*u[0,0] + pos[:,1]*u[0,1]
-    Yp = pos[:,0]*u[1,0] + pos[:,1]*u[1,1]
-    Xp -= np.floor(Xp + 0.5)
-    Yp -= np.floor(Yp + 0.5)
-    X = Xp*u_inv[0, 0] + Yp*u_inv[0, 1]
-    Y = Xp*u_inv[1, 0] + Yp*u_inv[1, 1]
-    R  = np.sqrt(X*X+Y*Y)
-    # energy inside flat bottom region
-    en = -np.sum(R <= a)*epsilon
-    # colloids inside the curve region
-    # mask and relative R
-    inside = np.logical_and(R<b, R>a)
-    Xin = X[inside]
-    Yin = Y[inside]
-    Rin = R[inside]
-    # calculation of energy and force. See X. Cao Phys. Rev. E 103, 1 (2021).
-    xx = (Rin-a)/(b-a) # Reduce coordinate rho in [0,1]
-    # energy
-    en += np.sum(epsilon/2.*(np.tanh((xx-ww)/xx/(1-xx))-1.))
-    # force F = - grad(E)
-    ff = (xx-ww)/xx/(1-xx)
-    ass = (np.cosh(ff)*(1-xx)*xx)*(np.cosh(ff)*(1-xx)*xx)
-    vecF = -epsilon/2*(xx*xx+ww-2*ww*xx)/ass
-    # Go from rho to r again
-    vecF /= (b-a)
-    # Project to x and y
-    F[0] = np.sum(vecF*Xin/Rin)
-    F[1] = np.sum(vecF*Yin/Rin)
-    return en, F
-
-def create_cluster(input_cluster, angle):
-    """create clusters taking as input the two primitive vectors a1 and a2
-    and the integer couples describing their positions.
-    center of mass in zero."""
-
-    file = open(input_cluster, 'r')
-    N = int(file.readline())
-    a1 = [float(x) for x in file.readline().split()]
-    a2 = [float(x) for x in file.readline().split()]
-    pos = np.zeros((N,6))
-    for i in range(N):
-        index = [float(x) for x in file.readline().split()]
-        pos[i,0] = index[0]*a1[0]+index[1]*a2[0]
-        pos[i,1] = index[0]*a1[1]+index[1]*a2[1]
-    pos -= np.average(pos,axis=0)
-    pos = rotate(pos, angle)
-    return pos
-
-def rotate(pos, angle):
-    """rotates pos vector (the first two rows are X,Y) by an angle in degrees"""
-    for i in range(pos.shape[0]):
-        newx = pos[i,0] * np.cos(angle/180*np.pi) - pos[i,1] * np.sin(angle/180*np.pi)
-        newy = pos[i,0] * np.sin(angle/180*np.pi) + pos[i,1] * np.cos(angle/180*np.pi)
-        pos[i,0] = newx
-        pos[i,1] = newy
-    return pos
+from tool_create_cluster import create_cluster, rotate
+from tool_create_substrate import gaussian, calc_matrices_triangle, calc_matrices_square, calc_en_gaussian, calc_en_tan
 
 def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, pos_fname=None, logger=None, debug=False):
     """Overdamped Langevin Molecular Dynamics of rigid cluster over a substrate"""
@@ -106,7 +28,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     else:
         c_log = logger
 
-    #-------- READ INPUTS -------------
+    #-------- INPUTS -------------
     if type(argv[0]) == dict: # Inputs passed as python dictionary
         inputs = argv[0]
     elif type(argv[0]) == str: # Inputs passed as path to json file
@@ -124,37 +46,67 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     except KeyError: pass
     try: pos_cm = np.array(inputs['pos_cm']) # Start pos [micron]
     except KeyError: pass
+    # create cluster
+    pos = create_cluster(input_cluster, angle)[:,:2]
+    np.savetxt(pos_fname, pos)
+    N = pos.shape[0] # Size of the cluster
+    c_log.info("Cluster N=%i start at (x,y,theta)=(%.3g,%.3g,%.3g)" % (N, *pos_cm, angle))
 
     # -- Substrate --
-    symmetry = inputs['sub_symm'] # Substrate symmetry (triangle or square)
-    a = inputs['a'] # Well end radius [micron]
-    b = inputs['b'] # Well slope radius [micron]
+    # define substrate metric
+    sub_symmetry = inputs['sub_symm'] # Substrate symmetry (triangle or square)
+    well_shape = inputs['well_shape'] # Substrate well shape (Gaussian or Tanh)
     R = inputs['R'] # Well lattice spacing [micron]
-    wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
     epsilon =  inputs['epsilon'] # Well depth [zJ]
 
+    if sub_symmetry == 'square':
+        calc_matrices = calc_matrices_square
+    elif sub_symmetry == 'triangle':
+        calc_matrices = calc_matrices_triangle
+    else:
+        raise ValueError("Symmetry %s not implemented" % sub_symmetry)
+    u, u_inv = calc_matrices(R)
+
+    if well_shape == 'tanh':
+        # Realistic well energy landscape
+        calc_en_f = calc_en_tan
+        a = inputs['a'] # Well end radius [micron]
+        b = inputs['b'] # Well slope radius [micron]
+        wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
+        en_params = [a, b, wd, epsilon, u, u_inv]
+    elif well_shape == 'gaussian':
+        # Gaussian energy landscape
+        sigma = inputs['sigma'] # Width of Gaussian
+        en_params = [sigma, epsilon, u, u_inv]
+        calc_en_f = calc_en_gaussian
+    else:
+        raise ValueError("Form %s not implemented" % well_shape)
+    c_log.info("%s substrate R=%.3g %s well shape depth=%.3g" % (sub_symmetry, R, well_shape, epsilon))
+
     # -- MD params --
-    T = inputs['T'] # [zJ]
+    T = inputs['T'] # [fN*micron]
     Fx, Fy = inputs['Fx'], inputs['Fy'] # [fN]
+    F = np.array([Fx, Fy])
     Nsteps = inputs['Nsteps']
     dt = inputs['dt'] # [ms]
-    dtheta = inputs['dtheta'] # [deg]
     print_skip = 100 # Timesteps to skip between prints
     try: print_skip = inputs['print_skip']
     except KeyError: pass
     printprog_skip = int(Nsteps/20) # Progress output frequency
     c_log.debug("Print every %i timesteps. Status update every %i." % (print_skip, printprog_skip))
+    # initialise variable
+    forces, torque = np.zeros(2), 0.
 
     # -- Simulation break conditions --
     both_breaks = True # Break if both V and omega satisfy conditions
-    try: break_both = inputs['both_breaks']
+    try: both_breaks = bool(inputs['both_breaks'])
     except KeyError: pass
     break_omega, break_V = False, False
     omega_avg, vel_avg = 0, 0 # store average of omega and velox over given timesteps
     avglen = 100 # timesteps
     min_Nsteps = 1e30 # min steps for average. E.g. 1e5
-    omega_min, omega_max = 0, 1e30 # tolerance to consider the system stuck or depinned. Careful with sign!
-    vel_min, vel_max = 0, 1e30     # If not given, continue indefinitely: omega_max huge
+    omega_min, omega_max = -1, 1e30 # tolerance (>0) to consider the system stuck or depinned.
+    vel_min, vel_max = -1, 1e30     # If not given, continue indefinitely: max huge, min <0
     rcm_max, theta_max = 1e30, 1e30
 
     # Set Stuck config exit
@@ -164,13 +116,14 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     except KeyError: pass
     try: vel_min = inputs['vel_min']
     except KeyError: pass
-    c_log.info("Stuck: Nmin %g avglen %i omega tol %.4g deg/ms velox tol %.4g micron/ms" % (min_Nsteps, avglen, omega_min, vel_min))
+
+    c_log.info("Stuck %s: Nmin=%g (tmin=%g) avglen %i omega_min=%.4g deg/ms velox_min=%.4g micron/ms" % ('both' if both_breaks else 'single', min_Nsteps, min_Nsteps*dt, avglen, omega_min, vel_min))
     if min_Nsteps < avglen: raise ValueError("Omega/Velocity average length larger them minimum number of steps!")
 
     # Set pinning config exit
     try: theta_max = inputs['theta_max']+angle # Exit if cluster rotates more than this
     except KeyError: pass
-    try: rcm_max = inputs['rcm_max']+np.linalg.norm(pos_cm) # Exit if cluster slides more than this
+    try: rcm_max = inputs['rcm_max']+npnorm(pos_cm) # Exit if cluster slides more than this
     except KeyError: pass
     try: omega_max = inputs['omega_max'] # Exit if cluster rotates faster than this
     except KeyError: pass
@@ -178,55 +131,14 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     except KeyError: pass
     c_log.info("Depin: Theta max = %.4g deg Omega max = %.4g deg/ms velox max = %.4g micron/ms" % (theta_max, omega_max, vel_max))
 
-    #-------- SETUP SYSTEM  -----------
-    # create cluster
-    pos = create_cluster(input_cluster, angle)[:,:2]
-    np.savetxt(pos_fname, pos)
-    N = pos.shape[0] # Size of the cluster
-    c_log.info("Cluster N=%i start at (x,y,theta)=(%.3g,%.3g,%.3g)" % (N, *pos_cm, angle))
-
-    # Check dtheta is sensible
-    max_r = np.max(np.linalg.norm(pos, axis=1))
-    #if dtheta == 'auto':
-    #    if inputs['en_form'] == 'tanh':
-    #        # Realistic well energy landscape
-    #        a = inputs['a'] # Well end radius [micron]
-    #        b = inputs['b'] # Well slope radius [micron]
-    #        wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
-    #        dtheta = (a+b)/2/max_r
-    #        c_log.info("Adopted dtheta=(a+b)/2/max_r=%.4g" % dtheta)
-    #    elif inputs['en_form'] == 'gaussian':
-    #        # Gaussian energy landscape
-    #        sigma = inputs['sigma'] # Width of Gaussian
-    #        dtheta = (sigma)/2/max_r
-    #        c_log.info("Adopted dtheta=(sigma)/2/max_r=%.4g" % dtheta)
-    #else:
-    #    max_dr = dtheta*max_r
-    max_dr = dtheta*max_r
-    if max_dr > (b+a):
-        c_log.warning("WARNING: max displacment exceeds well angular width: %.2f (dtheta*r_max) > %.2f ((a+b))" % (max_dr, a+b))
-
-    # define substrate metric
-    if symmetry == 'square':
-        calc_matrices = calc_matrices_square
-    elif symmetry == 'triangle':
-        calc_matrices = calc_matrices_triangle
-    else:
-        raise ValueError("Symmetry %s not implemented" % symmetry)
-    u, u_inv = calc_matrices(R)
-    c_log.info("%s substrate R=%.3g" % (symmetry, R))
-
-    # initialise variable
-    forces, torque = np.zeros(2), 0.
-
     #-------- LANGEVIN ----------------
     # Assumes rotation and translation indipendent. We just care about the scaling, not exact number.
     eta = 1   # Translational damping of single colloid
-    # CM translational viscosity
-    etat_eff = eta*N # [fKg/ms]
-    # CM rotational viscosity.
-    #etar_eff = etat*np.sum(pos**2) # CM rotational viscosity. Prop to N^2. Varying with shape as well.
-    etar_eff = eta*N**2 # [micron^2*fKg/ms]
+    # CM translational viscosity [fKg/ms]
+    etat_eff = eta*N
+    # CM rotational viscosity [micron^2*fKg/ms]
+    etar_eff = eta*np.sum(pos**2) # Prop to N^2. Varying with shape.
+    #etar_eff = eta*N**2 # Not varying with shape.
 
     c_log.info("Number of particles %i Eta trasl %.5g Eta tras eff %.5g Eta roto eff %.5g Ratio roto/tras %.5g" % (N, eta, etat_eff, etar_eff, etar_eff/etat_eff))
     c_log.info("T = %.4g fN*micron (T/N=%.4g)" % (T, T/N))
@@ -251,7 +163,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     indlab_space = 2 # Header index width
     lab_space = num_space-indlab_space-1 # Match width of printed number, including parenthesis
     header_labels = ['e_pot', 'pos_cm[0]', 'pos_cm[1]', 'Vcm[0]', 'Vcm[1]',
-                     'angle', 'omega', 'forces[0]', 'forces[1]', 'torque-T']
+                     'angle', 'omega', 'forces[0]', 'forces[1]', 'torque']
     # Gnuplot-compatible (leading #) fix-width output file
     first = '#{i:0{ni}d}){s: <{n}}'.format(i=0, s='dt*it', ni=indlab_space, n=lab_space-1,c=' ')
     print(first+"".join(['{i:0{ni}d}){s: <{n}}'.format(i=il+1, s=lab, ni=indlab_space, n=lab_space,c=' ')
@@ -272,36 +184,25 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     t0 = time() # Start clock
     for it in range(Nsteps):
 
-        # SOLVE DYNAMICS
-        # energy is -epsilon inside well, 0 outside well. Continuous function in between.
-        e_pot, forces = calc_en_tan(pos + pos_cm, a, b, wd, epsilon, u, u_inv)
-        # torque is T = - dE / dTheta = - (E(theta+) - E(theta-)) / 2dTheta
-        en_plus, _ = calc_en_tan(rotate(pos, dtheta) + pos_cm, a, b, wd, epsilon, u, u_inv)
-        en_minus,_ = calc_en_tan(rotate(pos,-dtheta) + pos_cm, a, b, wd, epsilon, u, u_inv)
-        # add external torque
-        torque = -(en_plus - en_minus)/dtheta/2
+        # ENERGY LANDSCAPE
+        e_pot, forces, torque = calc_en_f(pos + pos_cm, pos_cm, *en_params)
 
-        #if it % printprog_skip == 0:
-        #    c_log.debug("Forces %s " % str(forces))
-        #    c_log.debug("Forces + F_ext %s " % str(forces+[Fx, Fy]))
-        Vcm = (forces + [Fx, Fy])/etat_eff
-
+        # UPDATE VELOCITIES
+        # First order Langevin equation
+        Vcm = (forces + F)/etat_eff
         omega = (torque + T)/etar_eff
 
         # Print progress
         if it % printprog_skip == 0:
             c_log.info("t=%10.3g of %5.2g (%2i%%) E=%15.7g  x=%9.3g y=%9.3g theta=%9.3g omega=%9.3g |Vcm|=%9.3g",
-                       it*dt, Nsteps*dt, 100.*it/Nsteps, e_pot, pos_cm[0], pos_cm[1], angle, omega, np.linalg.norm(Vcm))
+                       it*dt, Nsteps*dt, 100.*it/Nsteps, e_pot, pos_cm[0], pos_cm[1], angle, omega, npnorm(Vcm))
 
         # Print step results
         if it % print_skip == 0: print_status()
 
         # UPDATE DEGREES OF FREEDOM
         # center of mass follows local forces.
-        #if it % printprog_skip == 0:
-        #    c_log.debug("Pos_cm: %s" % str(pos_cm))
-        #    c_log.debug("Pos_cm + V dt: %s" % str(pos_cm+Vcm*dt))
-        pos_cm = pos_cm + dt * Vcm
+        pos_cm += dt * Vcm
         # angle of cluster follows local torque.
         dangle = dt*omega
         angle += dangle
@@ -311,15 +212,15 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
         # CHECK FOR STOPPING CONDITIONS
         # Compute omega average and check for exit conditions
         omega_avg += omega # Average omega to check if system is stuck. See avglen.
-        vel_avg += np.linalg.norm(Vcm) # Average omega to check if system is stuck. See avglen.
+        vel_avg += npnorm(Vcm) # Average omega to check if system is stuck. See avglen.
         if it % avglen == 0:
             omega_avg /= avglen
             vel_avg /= avglen
-            rcm = np.linalg.norm(pos_cm)
+            rcm = npnorm(pos_cm)
 
             # If system is stuck, set flag to exit
             if np.abs(omega_avg) < omega_min and it >= min_Nsteps: break_omega = True
-            if np.abs(vel_avg) < vel_min and it >= min_Nsteps: break_V = True
+            if vel_avg < vel_min and it >= min_Nsteps: break_V = True
 
             # If system is rotating or sliding without stopping, set flag to exit
             if (angle >= theta_max or np.abs(omega_avg) >= omega_max) and it >= min_Nsteps: break_omega = True
