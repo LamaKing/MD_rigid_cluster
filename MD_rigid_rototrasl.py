@@ -4,6 +4,7 @@ import sys
 import json
 import logging
 import numpy as np
+from numpy.random import normal
 from numpy.linalg import norm as npnorm
 from time import time
 from tool_create_cluster import create_cluster, rotate
@@ -48,6 +49,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     except KeyError: pass
     # create cluster
     pos = create_cluster(input_cluster, angle)[:,:2]
+
     np.savetxt(pos_fname, pos)
     N = pos.shape[0] # Size of the cluster
     c_log.info("Cluster N=%i start at (x,y,theta)=(%.3g,%.3g,%.3g)" % (N, *pos_cm, angle))
@@ -84,7 +86,8 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     c_log.info("%s substrate R=%.3g %s well shape depth=%.3g" % (sub_symmetry, R, well_shape, epsilon))
 
     # -- MD params --
-    T = inputs['T'] # [fN*micron]
+    T = inputs['T'] # kBT [zJ]
+    Tau = inputs['Tau'] # [fN*micron]
     Fx, Fy = inputs['Fx'], inputs['Fy'] # [fN]
     F = np.array([Fx, Fy])
     Nsteps = inputs['Nsteps']
@@ -139,17 +142,21 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     # CM rotational viscosity [micron^2*fKg/ms]
     etar_eff = eta*np.sum(pos**2) # Prop to N^2. Varying with shape.
     #etar_eff = eta*N**2 # Not varying with shape.
+    # Aplitude of random numbers. Translational follows nicely from CLT, rotational is assumed after A. E. Filippov, M. Dienwiebel, J. W. M. Frenken, J. Klafter, and M. Urbakh, Phys. Rev. Lett. 100, 046102 (2008).
+    brandt, brandr = np.sqrt(2*T*etat_eff), np.sqrt(2*T*etar_eff)
 
-    c_log.info("Number of particles %i Eta trasl %.5g Eta tras eff %.5g Eta roto eff %.5g Ratio roto/tras %.5g" % (N, eta, etat_eff, etar_eff, etar_eff/etat_eff))
-    c_log.info("T = %.4g fN*micron (T/N=%.4g)" % (T, T/N))
-    c_log.debug("Free cluster would rotate %.2f deg", T/etar_eff * Nsteps * dt)
+    c_log.info("Number of particles %i Eta trasl %.5g Eta tras eff %.5g Eta roto eff %.5g Ratio roto/tras %.5g kBT=%.3g" % (N, eta, etat_eff, etar_eff, etar_eff/etat_eff, T))
+    c_log.info("Tau = %.4g fN*micron (Tau/N=%.4g)" % (Tau, Tau/N))
+    c_log.debug("Free cluster would rotate %.2f deg", Tau/etar_eff * Nsteps * dt)
     c_log.info("Fx = %.4g fN (Fx/N=%.4g), Fy = %.4g fN (Fy/N=%.4g), |F| = %.4g fN (|F|/N=%.4g)",
                Fx, Fx/N, Fy, Fy/N, np.sqrt(Fx**2+Fy**2), np.sqrt(Fx**2+Fy**2)/N)
     c_log.debug("Free cluster would translate %.2f micron", np.sqrt(Fx**2+Fy**2)/etat_eff * Nsteps * dt)
+    c_log.debug("Amplitude of random number trasl %.2g and roto %.2g" % (brandt, brandr))
 
     #-------- INFO FILE ---------------
     with open(info_fname, 'w') as infof:
-        infod = {'eta': eta, 'etat_eff': etat_eff, 'etar_eff': etar_eff, 'N': N, 'theta_max': theta_max, 'print_skip': print_skip,
+        infod = {'eta': eta, 'etat_eff': etat_eff, 'etar_eff': etar_eff, 'brandt': brandt, 'brandr': brandr,
+                 'N': N, 'theta_max': theta_max, 'print_skip': print_skip,
                  'min_Nsteps': min_Nsteps, 'avglen': avglen, 'omega_min': omega_min, 'omega_max': omega_max,
                  'pos_cm': pos_cm.tolist()
         }
@@ -189,14 +196,17 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
         # UPDATE VELOCITIES
         # First order Langevin equation
-        Vcm = (forces + F)/etat_eff
-        omega = (torque + T)/etar_eff
+        noise = normal(0, 1, size=3)
+        Vcm = (forces + F + brandt*noise[0:2])/etat_eff
+        omega = (torque + Tau + brandr*noise[2])/etar_eff
 
         # Print progress
         if it % printprog_skip == 0:
             c_log.info("t=%10.3g of %5.2g (%2i%%) E=%15.7g  x=%9.3g y=%9.3g theta=%9.3g omega=%9.3g |Vcm|=%9.3g",
                        it*dt, Nsteps*dt, 100.*it/Nsteps, e_pot, pos_cm[0], pos_cm[1], angle, omega, npnorm(Vcm))
-
+            c_log.debug("Noise %.2g %.2g %.2g, thermal kick Fxy=(%.2g %.2g) torque=%.2g" % (noise[0],noise[1], noise[2],
+                                                                                              *(brandt*noise[0:2]),brandr*noise[2]))
+            c_log.debug("Thermal displ scaled (Fx, Fy)/etat=(%.2g %.2g) torque/etar=%.2g" % (*(brandt*noise[0:2]/etat_eff),brandr*noise[2]/etar_eff))
         # Print step results
         if it % print_skip == 0: print_status()
 
@@ -258,4 +268,4 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
 # Stand-alone scripting
 if __name__ == "__main__":
-    MD_rigid_rototrasl(sys.argv[1:], debug=False)
+    MD_rigid_rototrasl(sys.argv[1:], debug=True)
