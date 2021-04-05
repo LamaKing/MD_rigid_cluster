@@ -146,10 +146,10 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     brandt, brandr = np.sqrt(2*T*etat_eff), np.sqrt(2*T*etar_eff)
 
     c_log.info("Number of particles %i Eta trasl %.5g Eta tras eff %.5g Eta roto eff %.5g Ratio roto/tras %.5g kBT=%.3g" % (N, eta, etat_eff, etar_eff, etar_eff/etat_eff, T))
-    c_log.info("Tau = %.4g fN*micron (Tau/N=%.4g)" % (Tau, Tau/N))
+    c_log.info("Tau = %.4g fN*micron (Tau/N=%.4g omegafree=%.4g)" % (Tau, Tau/N, Tau/etar_eff))
     c_log.debug("Free cluster would rotate %.2f deg", Tau/etar_eff * Nsteps * dt)
-    c_log.info("Fx = %.4g fN (Fx/N=%.4g), Fy = %.4g fN (Fy/N=%.4g), |F| = %.4g fN (|F|/N=%.4g)",
-               Fx, Fx/N, Fy, Fy/N, np.sqrt(Fx**2+Fy**2), np.sqrt(Fx**2+Fy**2)/N)
+    c_log.info("Fx = %.4g fN (Fx/N=%.4g), Fy = %.4g fN (Fy/N=%.4g), |F| = %.4g fN (|F|/N=%.4g Vfree=(%.4g %.4g))",
+               Fx, Fx/N, Fy, Fy/N, np.sqrt(Fx**2+Fy**2), np.sqrt(Fx**2+Fy**2)/N, Fx/etat_eff, Fy/etat_eff)
     c_log.debug("Free cluster would translate %.2f micron", np.sqrt(Fx**2+Fy**2)/etat_eff * Nsteps * dt)
     c_log.debug("Amplitude of random number trasl %.2g and roto %.2g" % (brandt, brandr))
 
@@ -268,4 +268,4 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
 # Stand-alone scripting
 if __name__ == "__main__":
-    MD_rigid_rototrasl(sys.argv[1:], debug=True)
+    MD_rigid_rototrasl(sys.argv[1:], debug=False)
