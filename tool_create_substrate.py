@@ -66,13 +66,13 @@ def calc_en_gaussian(pos, pos_cm, sigma, epsilon, u, u_inv):
     posp -= np.floor(posp + 0.5)
     pospp = np.dot(u_inv, posp.T).T
     posR = npnorm(pospp, axis=1)
-    off = posR != 0
+    off = posR != 0 # Forces at min are 0, but non analytic projecton.
     # Energy, forces and torque on CM
-    en = -epsilon*np.sum(gaussian(posR[off], 0, sigma))
-    F[off, 0] = epsilon*gaussian(posR[off],0,sigma) * (posR[off] / np.power(sigma, 2.)) * pospp[off,0] / posR[off]
-    F[off, 1] = epsilon*gaussian(posR[off],0,sigma) * (posR[off] / np.power(sigma, 2.)) * pospp[off,1] / posR[off]
+    en = -epsilon*np.sum(gaussian(posR, 0, sigma)) # Do include all for energy!
+    F[off, 0] = -epsilon*gaussian(posR[off],0,sigma) * (posR[off] / np.square(sigma)) * pospp[off,0] / posR[off]
+    F[off, 1] = -epsilon*gaussian(posR[off],0,sigma) * (posR[off] / np.square(sigma)) * pospp[off,1] / posR[off]
     tau = np.cross(pos-pos_cm, F)
     return en, np.sum(F, axis=0), np.sum(tau)
 
 def gaussian(x, mu, sig):
-    return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.))) / (2. * np.pi * np.power(sig, 2.))
+    return np.exp(-np.square(x - mu) / (2 * np.square(sig)))
