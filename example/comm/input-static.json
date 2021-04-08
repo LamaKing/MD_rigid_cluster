@@ -1,0 +1,15 @@
+{
+    "cluster_shape": "hexagon",
+    "angle0": -31.0,
+    "angle1": 31.0,
+    "sub_symm": "triangle",
+    "en_form": "gaussian",
+    "a": 0.6,
+    "b": 2.0,
+    "R": 4.45,
+    "sigma": 0.5,
+    "epsilon": 105,
+    "wd": 0.29,
+    "dtheta": 0.01,
+    "pos_cm": [0,0]
+}
