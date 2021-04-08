@@ -155,7 +155,7 @@ if __name__ == "__main__":
     input_cluster = sys.argv[1]
     X0 = 0.0
     Y0 = 0.0
-    clt_shape = sys.argv[1]
+    clt_shape = sys.argv[2]
     if clt_shape == 'circle':
         create_cluster_func = create_cluster_circle
     elif clt_shape == 'hexagon':
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     else:
         raise ValueError("Shape %s not implemented" % clt_shape)
 
-    if len(sys.argv)>3:
-        X0 = sys.argv[2]
-        Y0 = sys.argv[3]
+    if len(sys.argv)>4:
+        X0 = sys.argv[3]
+        Y0 = sys.argv[4]
     create_cluster_func(input_cluster, X0=X0, Y0=Y0)

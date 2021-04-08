@@ -202,9 +202,9 @@ if __name__ == "__main__":
 
     # Set up system for multiprocess
     ncpu = os.cpu_count()
-    nworkers = 8
+    nworkers = 1
     Nl_range = range(N0, N1) # Sizes to explore, in parallels
-    c_log.info("Running %i elements on %i processes on %i cores" % (len(Nl_range), nworkers, ncpu))
+    c_log.info("Running %i elements on %i processes (%i cores machine)" % (len(Nl_range), nworkers, ncpu))
 
     # Fix the all arguments a part from Nl, so that we can use pool.map
     partial_rotomap_Nl = partial(static_rotomap_Nl, inputs=inputs, calc_en_f=calc_en_f, debug=debug) # defaut should be fine for most
