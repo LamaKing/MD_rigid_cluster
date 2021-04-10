@@ -4,7 +4,6 @@ import sys, os, json, logging, multiprocessing
 import numpy as np
 from time import time
 from functools import partial
-from tempfile import NamedTemporaryFile
 from tool_create_cluster import create_cluster_hex, create_cluster_circle, rotate, cluster_inhex_Nl
 from tool_create_substrate import gaussian, calc_matrices_triangle, calc_matrices_square, calc_en_gaussian, calc_en_tan
 
@@ -68,8 +67,7 @@ def static_rotomap_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fna
         pos_cm = np.zeros(2) # If not given, start from centre
     forces = np.zeros(2)
     torque = 0.
-
-    # Map params
+    # map params
     max_r = np.max(np.linalg.norm(pos, axis=1))
     if dtheta == 'auto':
         if inputs['en_form'] == 'tanh':
@@ -128,7 +126,6 @@ def static_rotomap_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fna
     c_log.info("computing Map. Turn off logger propagate, see specific console given")
     c_log.propagate = False
     for it, theta in enumerate(theta_range):
-
         # energy is -epsilon inside well, 0 outside well.
         e_pot, forces, torque = calc_en_f(pos + pos_cm, pos_cm, *en_params)
         # positions are further rotated
