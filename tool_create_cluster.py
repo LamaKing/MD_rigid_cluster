@@ -7,6 +7,15 @@ import os.path
 import math
 import numpy as np
 
+def calc_cluster_langevin(eta, pos):
+    N = pos.shape[0] # Size of the cluster
+    # CM translational viscosity [fKg/ms]
+    etat_eff = eta*N
+    # CM rotational viscosity [micron^2*fKg/ms]
+    etar_eff = eta*np.sum(pos**2) # Prop to N^2. Varying with shape.
+    #etar_eff = eta*N**2 # Not varying with shape.
+    return etat_eff, etar_eff
+
 def create_cluster_inhex(input_cluster):
     file = open(input_cluster, 'r')
     N1, N2 = [int(x) for x in file.readline().split()]

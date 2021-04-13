@@ -4,7 +4,6 @@ import sys, os, json, logging, multiprocessing
 import numpy as np
 from time import time
 from functools import partial
-from tempfile import NamedTemporaryFile
 from tool_create_cluster import create_cluster_hex, create_cluster_circle, rotate, cluster_inhex_Nl
 from tool_create_substrate import gaussian, calc_matrices_triangle, calc_matrices_square, calc_en_gaussian, calc_en_tan
 
@@ -13,7 +12,7 @@ def static_rotomap_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fna
     if name == None:
         name = 'rotomap_Nl_%i' % Nl
     if out_fname == None: out_fname = 'out-%s.dat' % name
-    if info_fname == None: info_fname = 'info-%s.txt' % name
+    if info_fname == None: info_fname = 'info-%s.json' % name
 
     #-------- SET UP LOGGER -------------
     # For this threads and children
@@ -58,18 +57,16 @@ def static_rotomap_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fna
     pos, _ = cluster_inhex_Nl(Nl, Nl, a1=a1, a2=a2, clgeom_fname=clgeom_fname, cluster_f=create_cluster)
     N = pos.shape[0]
     pos = rotate(pos, angle_start)
-    c_log.info("%s cluster size %i (Nl %i). Starting %.2g deg finish %.2g deg" % (clt_shape, N, Nl, angle_start, angle_end))
     inputs['cluster_hex'] = clgeom_fname
-
-    # initialise variable
     try:
         pos_cm = np.array(inputs['pos_cm']) # Start pos [micron]
     except KeyError:
         pos_cm = np.zeros(2) # If not given, start from centre
     forces = np.zeros(2)
     torque = 0.
+    c_log.info("%s cluster size %i (Nl %i) at (x,y)=(%.4g,%.4g). Starting %.2g deg finish %.2g deg" % (clt_shape, N, Nl, *pos_cm,  angle_start, angle_end))
 
-    # Map params
+    # map params
     max_r = np.max(np.linalg.norm(pos, axis=1))
     if dtheta == 'auto':
         if inputs['en_form'] == 'tanh':
@@ -128,7 +125,6 @@ def static_rotomap_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fna
     c_log.info("computing Map. Turn off logger propagate, see specific console given")
     c_log.propagate = False
     for it, theta in enumerate(theta_range):
-
         # energy is -epsilon inside well, 0 outside well.
         e_pot, forces, torque = calc_en_f(pos + pos_cm, pos_cm, *en_params)
         # positions are further rotated
@@ -203,6 +199,8 @@ if __name__ == "__main__":
     # Set up system for multiprocess
     ncpu = os.cpu_count()
     nworkers = 1
+    try: nworkers = int(sys.argv[4])
+    except: pass
     Nl_range = range(N0, N1) # Sizes to explore, in parallels
     c_log.info("Running %i elements on %i processes (%i cores machine)" % (len(Nl_range), nworkers, ncpu))
 

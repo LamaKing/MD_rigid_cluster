@@ -7,7 +7,7 @@ import numpy as np
 from numpy.random import normal
 from numpy.linalg import norm as npnorm
 from time import time
-from tool_create_cluster import create_cluster, rotate
+from tool_create_cluster import create_cluster, rotate, calc_cluster_langevin
 from tool_create_substrate import gaussian, calc_matrices_triangle, calc_matrices_square, calc_en_gaussian, calc_en_tan
 
 def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, pos_fname=None, logger=None, debug=False):
@@ -41,11 +41,11 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
     # -- Cluster --
     input_cluster = inputs['cluster_hex'] # Geom as lattice and Bravais points
-    pos_cm = np.zeros(2) # If not given, start from centre
+    pos_cm = np.zeros(2, dtype=float) # If not given, start from centre
     angle = 0 # If not given, start aligned
     try: angle = inputs['angle'] # Starting angle [deg]
     except KeyError: pass
-    try: pos_cm = np.array(inputs['pos_cm']) # Start pos [micron]
+    try: pos_cm = np.array(inputs['pos_cm'], dtype=float) # Start pos [micron]
     except KeyError: pass
     # create cluster
     pos = create_cluster(input_cluster, angle)[:,:2]
@@ -132,25 +132,25 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     except KeyError: pass
     try: vel_max = inputs['vel_max'] # Exit if cluster rotates more than this
     except KeyError: pass
-    c_log.debug("Depin: Theta max = %.4g deg Omega max = %.4g deg/ms velox max = %.4g micron/ms" % (theta_max, omega_max, vel_max))
+    c_log.debug("Depin: theta_max=%.4g omega_max=%.4g rcm_max=%.4g vel_max = %.4g" % (theta_max, rcm_max, omega_max, vel_max))
 
     #-------- LANGEVIN ----------------
     # Assumes rotation and translation indipendent. We just care about the scaling, not exact number.
     eta = 1   # Translational damping of single colloid
-    # CM translational viscosity [fKg/ms]
-    etat_eff = eta*N
-    # CM rotational viscosity [micron^2*fKg/ms]
-    etar_eff = eta*np.sum(pos**2) # Prop to N^2. Varying with shape.
-    #etar_eff = eta*N**2 # Not varying with shape.
-    # Aplitude of random numbers. Translational follows nicely from CLT, rotational is assumed after A. E. Filippov, M. Dienwiebel, J. W. M. Frenken, J. Klafter, and M. Urbakh, Phys. Rev. Lett. 100, 046102 (2008).
+    try: eta = inputs['eta']
+    except KeyError: pass
+    # CM translational viscosity [fKg/ms], CM rotational viscosity [micron^2*fKg/ms]
+    etat_eff, etar_eff = calc_cluster_langevin(eta, pos)
+    # Aplitude of random numbers. Translational follows nicely from CLT, rotational is assumed from A. E. Filippov, M. Dienwiebel, J. W. M. Frenken, J. Klafter, and M. Urbakh, Phys. Rev. Lett. 100, 046102 (2008).
     brandt, brandr = np.sqrt(2*T*etat_eff), np.sqrt(2*T*etar_eff)
+    kBTroom = 4.069767441860465 #zj
+    c_log.info("Number of particles %i Eta trasl %.5g Eta tras eff %.5g Eta roto eff %.5g Ratio roto/tras %.5g kBT=%.3g (kBT/kBTroom=%.3g)" % (N, eta, etat_eff, etar_eff, etar_eff/etat_eff, T, T/kBTroom))
 
-    c_log.info("Number of particles %i Eta trasl %.5g Eta tras eff %.5g Eta roto eff %.5g Ratio roto/tras %.5g kBT=%.3g" % (N, eta, etat_eff, etar_eff, etar_eff/etat_eff, T))
     c_log.info("Tau = %.4g fN*micron (Tau/N=%.4g)" % (Tau, Tau/N))
-    c_log.debug("Free cluster would rotate %.2f deg", Tau/etar_eff * Nsteps * dt)
     c_log.info("Fx=%.4g fN (Fx/N=%.4g), Fy=%.4g fN (Fy/N=%.4g), |F| = %.4g fN (|F|/N=%.4g)",
                Fx, Fx/N, Fy, Fy/N, np.sqrt(Fx**2+Fy**2), np.sqrt(Fx**2+Fy**2)/N)
-    c_log.info("Omega free=%.4g  Vfree=(%.4g %.4g))" % (Tau/etar_eff, Fx/etat_eff, Fy/etat_eff))
+    c_log.info("Omega free=%.4g  Vfree=(%.4g,%.4g) |Vfree|=%.4g" % (Tau/etar_eff, Fx/etat_eff, Fy/etat_eff, np.sqrt(Fx**2+Fy**2)/etat_eff))
+    c_log.debug("Free cluster would rotate %.2f deg", Tau/etar_eff * Nsteps * dt)
     c_log.debug("Free cluster would translate %.2f micron", np.sqrt(Fx**2+Fy**2)/etat_eff * Nsteps * dt)
     c_log.debug("Amplitude of random number trasl %.2g and roto %.2g" % (brandt, brandr))
 
@@ -203,11 +203,12 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
         # Print progress
         if it % printprog_skip == 0:
-            c_log.info("t=%7.3g of %5.2g (%2i%%) E=%10.7g  x=%8.3g y=%8.3g theta=%7.3g omega=%8.3g |Vcm|=%8.3g",
+            c_log.info("t=%8.3g of %5.2g (%2i%%) E=%10.3g  x=%9.3g y=%9.3g theta=%9.3g omega=%10.3g |Vcm|=%8.3g",
                        it*dt, Nsteps*dt, 100.*it/Nsteps, e_pot, pos_cm[0], pos_cm[1], angle, omega, npnorm(Vcm))
-            c_log.debug("Noise %.2g %.2g %.2g, thermal kick Fxy=(%.2g %.2g) torque=%.2g" % (noise[0],noise[1], noise[2],
-                                                                                              *(brandt*noise[0:2]),brandr*noise[2]))
-            c_log.debug("Thermal displ scaled (Fx, Fy)/etat=(%.2g %.2g) torque/etar=%.2g" % (*(brandt*noise[0:2]/etat_eff),brandr*noise[2]/etar_eff))
+            #c_log.debug("Noise %.2g %.2g %.2g, thermal kick Fxy=(%.2g %.2g) torque=%.2g" % (noise[0],noise[1], noise[2], *(brandt*noise[0:2]),brandr*noise[2]))
+            #c_log.debug("Thermal displ scaled (Fx, Fy)/etat=(%.2g %.2g) torque/etar=%.2g" % (*(brandt*noise[0:2]/etat_eff),brandr*noise[2]/etar_eff))
+            c_log.debug("Break: v %.5g (vmin %.5g vmax %.5g); omega %.5g (omegamin %.5g omegamax %.5g)" % (npnorm(Vcm), vel_min, vel_max,
+                                                                                               omega, omega_min, omega_max))
         # Print step results
         if it % print_skip == 0: print_status()
 
@@ -244,7 +245,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
                 c_log.info("Translationa: rcm=%10.4g <v>_%i=%10.4g" % (rcm, avglen, vel_avg))
                 # Pinned check
                 if np.abs(omega_avg) < omega_min: c_log.info("System is roto-pinned (omega min=%.4g)." % (omega_min))
-                if np.abs(vel_avg) < vel_min: c_log.info("System is roto-pinned (vel_min=%.4g)." % (vel_min))
+                if np.abs(vel_avg) < vel_min: c_log.info("System is trasl-pinned (vel_min=%.4g)." % (vel_min))
                 # Depinned check
                 if (angle >= theta_max or np.abs(omega_avg) >= omega_max):
                     c_log.info("System is roto-depinned (theta max=%10.4g omega max=%10.4g)" % (theta_max, omega_max))
@@ -259,7 +260,7 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
     #-----------------------
 
     # Print last step, if needed
-    c_log.info("t=%7.3g of %5.2g (%2i%%) E=%10.7g  x=%8.3g y=%8.3g theta=%7.3g omega=%8.3g |Vcm|=%8.3g",
+    c_log.info("t=%7.3g of %5.2g (%2i%%) E=%10.7g  x=%9.3g y=%9.3g theta=%9.3g omega=%8.3g |Vcm|=%8.3g",
                it*dt, Nsteps*dt, 100.*it/Nsteps, e_pot, pos_cm[0], pos_cm[1], angle, omega, npnorm(Vcm))
     print_status()
 
@@ -269,4 +270,4 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
 
 # Stand-alone scripting
 if __name__ == "__main__":
-    MD_rigid_rototrasl(sys.argv[1:], debug=False)
+    MD_rigid_rototrasl(sys.argv[1:], debug=True)
