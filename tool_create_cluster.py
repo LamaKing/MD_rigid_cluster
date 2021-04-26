@@ -37,6 +37,16 @@ def create_cluster_inhex(input_cluster):
     print_xyz(pos)
     print_dat(pos)
 
+def load_cluster(input_cluster, angle=0):
+    """create clusters taking as input the two primitive vectors a1 and a2
+    and the integer couples describing their positions.
+    center of mass in zero."""
+
+    pos = np.loadtxt(input_cluster)
+    pos -= np.average(pos, axis=0 )
+    pos = rotate(pos, angle)
+    return pos
+
 def create_cluster(input_cluster, angle=0):
     """create clusters taking as input the two primitive vectors a1 and a2
     and the integer couples describing their positions.
