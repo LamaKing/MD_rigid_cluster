@@ -142,7 +142,7 @@ def static_traslmap_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fn
 if __name__ == "__main__":
     t0 = time()
     debug = False
-
+    print(sys.argv)
     #-------- SET UP LOGGER -------------
     c_log = logging.getLogger('driver') # Set name identifying the logger.
     # Adopted format: level - current function name - message. Width is fixed as visual aid.
@@ -154,6 +154,9 @@ if __name__ == "__main__":
         inputs = json.load(inj)
 
     N0, N1 = int(sys.argv[2]), int(sys.argv[3])
+    dN = 1
+    try: dN = int(sys.argv[4])
+    except: pass
 
     # Substrate
     Rcl = 4.45 # Lattice spacing of cluster. Fixed by experiments.
@@ -190,8 +193,8 @@ if __name__ == "__main__":
 
     # Set up system for multiprocess
     ncpu = os.cpu_count()
-    nworkers = 1
-    try: nworkers = int(sys.argv[4])
+    nworkers = 8
+    try: nworkers = int(sys.argv[5])
     except: pass
     Nl_range = range(N0, N1) # Sizes to explore, in parallels
     c_log.info("Running %i elements on %i processes (%i cores machine)" % (len(Nl_range), nworkers, ncpu))
