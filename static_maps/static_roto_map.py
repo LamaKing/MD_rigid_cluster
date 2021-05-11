@@ -88,6 +88,7 @@ def static_rotomap_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fna
 
     theta_range = np.arange(angle_start, angle_end+dtheta, dtheta)
     Nsteps = len(theta_range)
+    c_log.info("Running %i steps (dtheta=%.3g)" % (Nsteps, dtheta))
 
     #-------- INFO FILE ---------------
     with open(info_fname, 'w') as infof:
@@ -187,8 +188,12 @@ if __name__ == "__main__":
         en_params = [a, b, wd, epsilon, u, u_inv]
     elif en_form == 'gaussian':
         # Gaussian energy landscape
+        #a = R/2*inputs['at'] # Tempered tail as fraction of R
+        #b = R/2*inputs['bt'] # Flat end as fraction of R
+        a = inputs['a'] # Well end radius [micron]
+        b = inputs['b'] # Well slope radius [micron]
         sigma = inputs['sigma'] # Width of Gaussian
-        en_params = [sigma, epsilon, u, u_inv]
+        en_params = [a, b, sigma, epsilon, u, u_inv]
         calc_en_f = calc_en_gaussian
     else:
         raise ValueError("Form %s not implemented" % en_form)
