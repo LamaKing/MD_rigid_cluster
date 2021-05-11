@@ -58,7 +58,7 @@ def calc_en_tan(pos, pos_cm, a, b, ww, epsilon, u, u_inv):
     # Return energy, F and torque on CM
     return en, np.sum(F, axis=0), np.sum(tau)
 
-def calc_en_gaussian(pos, pos_cm, sigma, epsilon, u, u_inv):
+def calc_en_gaussian(pos, pos_cm, a, b, sigma, epsilon, u, u_inv):
     from numpy.linalg import norm as npnorm
     F = np.zeros(shape=(pos.shape[0],2))
     # Unit cell mapping
@@ -66,16 +66,33 @@ def calc_en_gaussian(pos, pos_cm, sigma, epsilon, u, u_inv):
     posp -= np.floor(posp + 0.5)
     pospp = np.dot(u_inv, posp.T).T
     posR = npnorm(pospp, axis=1)
-    off = posR != 0 # Forces at min are 0, but non analytic projecton.
-    # Energy, forces and torque on CM
-    en = -epsilon*np.sum(gaussian(posR, 0, sigma)) # Do include all for energy!
-    F[off, 0] = -epsilon*gaussian(posR[off],0,sigma) * (posR[off] / np.square(sigma)) * pospp[off,0] / posR[off]
-    F[off, 1] = -epsilon*gaussian(posR[off],0,sigma) * (posR[off] / np.square(sigma)) * pospp[off,1] / posR[off]
+    # Mask positions
+    bulk = posR<=a
+    tail = np.logical_and(posR>a, posR<b)
+    Rtail = posR[tail]
+    xx = (Rtail-a)/(b-a) # Reduce coordinate rho in [0,1]
+    ftail = (1 - 10*xx**3 + 15*xx**4 - 6*xx**5)  # Damping f [1,0]
+    dftail = (-30*xx**2 + 60*xx**3 - 30*xx**4)/(b-a) # Derivative of f
+    # Energy
+    en = -epsilon*np.sum(gaussian(posR[bulk], 0, sigma))
+    en += -epsilon*np.sum(gaussian(Rtail, 0, sigma)*ftail)
+    # Forces bulk
+    bulk = np.logical_and(posR<=a, posR != 0) # Exclude singular point in origin where F=0
+    F[bulk, 0] = -epsilon*gaussian(posR[bulk],0,sigma) * (posR[bulk] / np.power(sigma, 2.)) * pospp[bulk,0] / posR[bulk]
+    F[bulk, 1] = -epsilon*gaussian(posR[bulk],0,sigma) * (posR[bulk] / np.power(sigma, 2.)) * pospp[bulk,1] / posR[bulk]
+    # Forces tail F = d(E*f)/dx = E'*f + E*f'
+    f1 = epsilon*gaussian(Rtail, 0, sigma)*dftail # E f
+    f2 = -ftail*epsilon*gaussian(Rtail,0,sigma) * (Rtail / np.power(sigma, 2.)) # E' f
+    F[tail, 0] = (f1+f2) * pospp[tail,0] / posR[tail]
+    F[tail, 1] = (f1+f2) * pospp[tail,1] / posR[tail]
+    # Torque
     tau = np.cross(pos-pos_cm, F)
     return en, np.sum(F, axis=0), np.sum(tau)
 
 def gaussian(x, mu, sig):
     return np.exp(-np.square(x - mu) / (2 * np.square(sig)))
+#def gaussian(x, mu, sig):
+#    return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.))) / (2. * np.pi * np.power(sig, 2.))
 
 def particle_en_tan(pos, pos_cm, a, b, ww, epsilon, u, u_inv):
     """Calculate energy and forces. Well is approximated with tanh function."""
@@ -114,18 +131,35 @@ def particle_en_tan(pos, pos_cm, a, b, ww, epsilon, u, u_inv):
     # Return energy, F and torque on CM
     return en, F, tau
 
-def particle_en_gaussian(pos, pos_cm, sigma, epsilon, u, u_inv):
+def particle_en_gaussian(pos, pos_cm, a, b, sigma, epsilon, u, u_inv):
     from numpy.linalg import norm as npnorm
     F = np.zeros(shape=(pos.shape[0],2))
+    en = np.zeros(shape=(pos.shape[0]))
     # Unit cell mapping
     posp = np.dot(u, pos.T).T
     posp -= np.floor(posp + 0.5)
     pospp = np.dot(u_inv, posp.T).T
     posR = npnorm(pospp, axis=1)
     off = posR != 0 # Forces at min are 0, but non analytic projecton.
-    # Energy, forces and torque on CM
-    en = -epsilon*gaussian(posR, 0, sigma) # Do include all for energy!
-    F[off, 0] = -epsilon*gaussian(posR[off],0,sigma) * (posR[off] / np.square(sigma)) * pospp[off,0] / posR[off]
-    F[off, 1] = -epsilon*gaussian(posR[off],0,sigma) * (posR[off] / np.square(sigma)) * pospp[off,1] / posR[off]
+    # Mask positions
+    off = posR != 0 # Forces at min are 0, but non analytic projecton.
+    tail = np.logical_and(posR>a, posR<b)
+    bulk = posR<=a
+    Rtail = posR[tail]
+    xx = (Rtail-a)/(b-a) # Reduce coordinate rho in [0,1]
+    ftail = (1-10*xx**3+15*xx**4 -6*xx**5)  # Damping [1,0]
+    # Energy
+    en[bulk] = -epsilon*gaussian(posR[bulk], 0, sigma)
+    en[tail] = -epsilon*ftail*gaussian(Rtail, 0, sigma)
+    # Forces bulk
+    bulk = np.logical_and(posR<=a, posR != 0) # Exclude singular point in origin where F=0
+    F[bulk, 0] = -epsilon*gaussian(posR[bulk],0,sigma) * (posR[bulk] / np.power(sigma, 2.)) * pospp[bulk,0] / posR[bulk]
+    F[bulk, 1] = -epsilon*gaussian(posR[bulk],0,sigma) * (posR[bulk] / np.power(sigma, 2.)) * pospp[bulk,1] / posR[bulk]
+    # Forces tail
+    f1 = epsilon*gaussian(Rtail, 0, sigma)*dftail # E t'
+    f2 = -ftail*epsilon*gaussian(Rtail,0,sigma) * (Rtail / np.power(sigma, 2.)) #E' t
+    F[tail, 0] = (f1+f2) * pospp[tail,0] / posR[tail]
+    F[tail, 1] = (f1+f2) * pospp[tail,1] / posR[tail]
+    # Torque
     tau = np.cross(pos-pos_cm, F)
     return en, F, tau
