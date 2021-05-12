@@ -142,12 +142,12 @@ def particle_en_gaussian(pos, pos_cm, a, b, sigma, epsilon, u, u_inv):
     posR = npnorm(pospp, axis=1)
     off = posR != 0 # Forces at min are 0, but non analytic projecton.
     # Mask positions
-    off = posR != 0 # Forces at min are 0, but non analytic projecton.
-    tail = np.logical_and(posR>a, posR<b)
     bulk = posR<=a
+    tail = np.logical_and(posR>a, posR<b)
     Rtail = posR[tail]
     xx = (Rtail-a)/(b-a) # Reduce coordinate rho in [0,1]
-    ftail = (1-10*xx**3+15*xx**4 -6*xx**5)  # Damping [1,0]
+    ftail = (1 - 10*xx**3 + 15*xx**4 - 6*xx**5)  # Damping f [1,0]
+    dftail = (-30*xx**2 + 60*xx**3 - 30*xx**4)/(b-a) # Derivative of f
     # Energy
     en[bulk] = -epsilon*gaussian(posR[bulk], 0, sigma)
     en[tail] = -epsilon*ftail*gaussian(Rtail, 0, sigma)
@@ -155,9 +155,9 @@ def particle_en_gaussian(pos, pos_cm, a, b, sigma, epsilon, u, u_inv):
     bulk = np.logical_and(posR<=a, posR != 0) # Exclude singular point in origin where F=0
     F[bulk, 0] = -epsilon*gaussian(posR[bulk],0,sigma) * (posR[bulk] / np.power(sigma, 2.)) * pospp[bulk,0] / posR[bulk]
     F[bulk, 1] = -epsilon*gaussian(posR[bulk],0,sigma) * (posR[bulk] / np.power(sigma, 2.)) * pospp[bulk,1] / posR[bulk]
-    # Forces tail
-    f1 = epsilon*gaussian(Rtail, 0, sigma)*dftail # E t'
-    f2 = -ftail*epsilon*gaussian(Rtail,0,sigma) * (Rtail / np.power(sigma, 2.)) #E' t
+    # Forces tail F = d(E*f)/dx = E'*f + E*f'
+    f1 = epsilon*gaussian(Rtail, 0, sigma)*dftail # E f
+    f2 = -ftail*epsilon*gaussian(Rtail,0,sigma) * (Rtail / np.power(sigma, 2.)) # E' f
     F[tail, 0] = (f1+f2) * pospp[tail,0] / posR[tail]
     F[tail, 1] = (f1+f2) * pospp[tail,1] / posR[tail]
     # Torque
