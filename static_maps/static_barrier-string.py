@@ -72,8 +72,8 @@ def static_barrier_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fna
     forces = np.zeros(2)
     torque = 0
 
-    Nsteps = 5000
-    Npt = 200                          # number of subdivisions of the path connecting a and b
+    Nsteps = 3000
+    Npt = 100                          # number of subdivisions of the path connecting a and b
     L = Path(inputs['p0'], inputs['p1'], pos, Npt, fix_ends=False)               # initalise the path
     V = PotentialPathAnalyt(L, calc_en_f, en_params)      # potential along the path
     c_log.info("Relax string of %i points in %i stesp" % (Npt, Nsteps))
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     # Substrate
     Rcl = 4.45 # Lattice spacing of cluster. Fixed by experiments.
     symmetry = inputs['sub_symm']
-    en_form = inputs['en_form']
+    well_shape = inputs['well_shape']
     R = inputs['R'] # Well lattice spacing [micron]
     epsilon =  inputs['epsilon'] # Well depth [zJ]
     # define substrate metric
@@ -166,23 +166,27 @@ if __name__ == "__main__":
         raise ValueError("Symmetry %s not implemented" % symmetry)
     u, u_inv = calc_matrices(R)
 
-    if en_form == 'tanh':
+    if well_shape == 'tanh':
         # Realistic well energy landscape
         calc_en_f = calc_en_tan
         a = inputs['a'] # Well end radius [micron]
         b = inputs['b'] # Well slope radius [micron]
         wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
         en_params = [a, b, wd, epsilon, u, u_inv]
-    elif en_form == 'gaussian':
+    elif well_shape == 'gaussian':
         # Gaussian energy landscape
+        #a = R/2*inputs['at'] # Tempered tail as fraction of R
+        #b = R/2*inputs['bt'] # Flat end as fraction of R#
+        a = inputs['a'] # Well end radius [micron]
+        b = inputs['b'] # Well slope radius [micron]
         sigma = inputs['sigma'] # Width of Gaussian
-        en_params = [sigma, epsilon, u, u_inv]
+        en_params = [a, b, sigma, epsilon, u, u_inv]
         calc_en_f = calc_en_gaussian
     else:
-        raise ValueError("Form %s not implemented" % en_form)
+        raise ValueError("Form %s not implemented" % well_shape)
 
     c_log.info("%s substrate: R=%.6g depth eps=%.4g. " % (symmetry, R, epsilon))
-    c_log.info("%s sub parms: " % en_form + " ".join(["%s" % str(i) for i in en_params[:-2]]))
+    c_log.info("%s sub parms: " % well_shape + " ".join(["%s" % str(i) for i in en_params[:-2]]))
 
     # Path
     llp = np.linspace(-0.8,0.8)*R

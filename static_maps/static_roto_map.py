@@ -69,14 +69,14 @@ def static_rotomap_Nl(Nl, inputs, calc_en_f, name=None, out_fname=None, info_fna
     # map params
     max_r = np.max(np.linalg.norm(pos, axis=1))
     if dtheta == 'auto':
-        if inputs['en_form'] == 'tanh':
+        if inputs['well_shape'] == 'tanh':
             # Realistic well energy landscape
             a = inputs['a'] # Well end radius [micron]
             b = inputs['b'] # Well slope radius [micron]
             wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
             dtheta = (a+b)/2/max_r
             c_log.info("Adopted dtheta=(a+b)/2/max_r=%.4g" % dtheta)
-        elif inputs['en_form'] == 'gaussian':
+        elif inputs['well_shape'] == 'gaussian':
             # Gaussian energy landscape
             sigma = inputs['sigma'] # Width of Gaussian
             dtheta = (sigma)/2/max_r
@@ -163,11 +163,15 @@ if __name__ == "__main__":
         inputs = json.load(inj)
 
     N0, N1 = int(sys.argv[2]), int(sys.argv[3])
+    dN = 1
+    try: dN = int(sys.argv[4])
+    except: pass
+    c_log.info("From Nl %i to %i steps %i" % (N0, N1, dN))
 
     # Substrate
     Rcl = 4.45 # Lattice spacing of cluster. Fixed by experiments.
     symmetry = inputs['sub_symm']
-    en_form = inputs['en_form']
+    well_shape = inputs['well_shape']
     R = inputs['R'] # Well lattice spacing [micron]
     epsilon =  inputs['epsilon'] # Well depth [zJ]
     # define substrate metric
@@ -179,34 +183,34 @@ if __name__ == "__main__":
         raise ValueError("Symmetry %s not implemented" % symmetry)
     u, u_inv = calc_matrices(R)
 
-    if en_form == 'tanh':
+    if well_shape == 'tanh':
         # Realistic well energy landscape
         calc_en_f = calc_en_tan
         a = inputs['a'] # Well end radius [micron]
         b = inputs['b'] # Well slope radius [micron]
         wd = inputs['wd'] # Well asymmetry. 0.29 is a good value
         en_params = [a, b, wd, epsilon, u, u_inv]
-    elif en_form == 'gaussian':
+    elif well_shape == 'gaussian':
         # Gaussian energy landscape
         #a = R/2*inputs['at'] # Tempered tail as fraction of R
-        #b = R/2*inputs['bt'] # Flat end as fraction of R
+        #b = R/2*inputs['bt'] # Flat end as fraction of R#
         a = inputs['a'] # Well end radius [micron]
         b = inputs['b'] # Well slope radius [micron]
         sigma = inputs['sigma'] # Width of Gaussian
         en_params = [a, b, sigma, epsilon, u, u_inv]
         calc_en_f = calc_en_gaussian
     else:
-        raise ValueError("Form %s not implemented" % en_form)
+        raise ValueError("Form %s not implemented" % well_shape)
 
     c_log.info("%s substrate: R=%.6g depth eps=%.4g. " % (symmetry, R, epsilon))
-    c_log.info("%s sub parms: " % en_form + " ".join(["%s" % str(i) for i in en_params[:-2]]))
+    c_log.info("%s sub parms: " % well_shape + " ".join(["%s" % str(i) for i in en_params[:-2]]))
 
     # Set up system for multiprocess
     ncpu = os.cpu_count()
     nworkers = 1
-    try: nworkers = int(sys.argv[4])
+    try: nworkers = int(sys.argv[5])
     except: pass
-    Nl_range = range(N0, N1) # Sizes to explore, in parallels
+    Nl_range = range(N0, N1, dN) # Sizes to explore, in parallels
     c_log.info("Running %i elements on %i processes (%i cores machine)" % (len(Nl_range), nworkers, ncpu))
 
     # Fix the all arguments a part from Nl, so that we can use pool.map

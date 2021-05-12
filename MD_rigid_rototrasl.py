@@ -78,8 +78,16 @@ def MD_rigid_rototrasl(argv, outstream=sys.stdout, name=None, info_fname=None, p
         en_params = [a, b, wd, epsilon, u, u_inv]
     elif well_shape == 'gaussian':
         # Gaussian energy landscape
+        #sigma = inputs['sigma'] # Width of Gaussian
+        #en_params = [sigma, epsilon, u, u_inv]
+        #calc_en_f = calc_en_gaussian
+        # Gaussian energy landscape
+        #a = R/2*inputs['at'] # Tempered tail as fraction of R
+        #b = R/2*inputs['bt'] # Flat end as fraction of R
+        a = inputs['a'] # Well end radius [micron]
+        b = inputs['b'] # Well slope radius [micron]
         sigma = inputs['sigma'] # Width of Gaussian
-        en_params = [sigma, epsilon, u, u_inv]
+        en_params = [a, b, sigma, epsilon, u, u_inv]
         calc_en_f = calc_en_gaussian
     else:
         raise ValueError("Form %s not implemented" % well_shape)
